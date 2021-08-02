@@ -1,33 +1,15 @@
-# Running Gitpod in [Amazon EKS](https://aws.amazon.com/en/eks/)
+# Running Gitpod in [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine)
 
-## Provision an EKS cluster
+## Provision a GKE cluster
 
 Before starting the installation process, you need:
 
-- An AWS account with Administrator access
+- A GCP account with Administrator access
   - [Create one now by clicking here](https://aws.amazon.com/getting-started/)
-- A SSL Certificate created with [AWS Certificate Manager](https://aws.amazon.com/en/certificate-manager/)
-- AWS credentials set up. By default, those configs are present in `$HOME/.aws/`.
-- [eksctl](https://eksctl.io/) config file describing the cluster.
-  - Here is an [eks-cluster.yaml](eks-cluster.yaml) you can use as example.
+- GCP credentials set up.
 - A `.env` file with basic details about the environment.
   - We provide an example of such file [here](.env.example).
 - [Docker](https://docs.docker.com/engine/install/) installed on your machine, or better, a Gitpod workspace :)
-
-### Choose an Amazon Machine Image (AMI)
-
-Please update the `ami` field in the [eks-cluster.yaml](eks-cluster.yaml) file with the proper AMI ID for the region of the cluster.
-
-| Region       | AMI                   |
-| ------------ | --------------------- |
-| us-west-1    | ami-0c94a575efb9bdefa |
-| us-west-2    | ami-0f2ff7608f3d887a2 |
-| eu-west-1    | ami-0ed829eab7f95f771 |
-| eu-west-2    | ami-00fab89ec63577fd5 |
-| eu-central-1 | ami-0ff1e9b7cf7b48808 |
-| us-east-1    | ami-01ac2c5dbcc82fd41 |
-| us-east-2    | ami-01a4fa78b79360b9d |
-
 
 **To start the installation, execute:**
 
@@ -35,27 +17,16 @@ Please update the `ami` field in the [eks-cluster.yaml](eks-cluster.yaml) file w
 make install
 ```
 
-The whole process takes around forty minutes. In the end, the following resources are created:
+The whole process takes around twenty minutes. In the end, the following resources are created:
 
-- an EKS cluster running Kubernetes v1.20
-- Kubernetes nodes using a custom [AMI image](https://github.com/gitpod-io/amazon-eks-custom-amis/tree/gitpod):
-  - Ubuntu 20.04
-  - Linux kernel v5.12
-  - containerd v1.54
-  - runc: v1.0.1
-  - CNI plugins: v0.9.1
-  - Stargz Snapshotter: v0.7.0
+- a GKE cluster running Kubernetes v1.21
 
 - ALB load balancer with TLS termination and re-encryption
-- RDS Mysql database
-- Two autoscaling groups, one for gitpod components and another for workspaces
-- In-cluster docker registry using S3 as storage backend
-- IAM account with S3 access (docker-registry and gitpod user content)
+- Cloud SQL Mysql database
+- In-cluster docker registry using [Cloud Storage](https://cloud.google.com/storage) as storage backend
 - [calico](https://docs.projectcalico.org) as CNI and NetworkPolicy implementation
 - [cert-manager](https://cert-manager.io/) for self-signed SSL certificates
-- [cluster-autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 - [Jaeger operator](https://github.com/jaegertracing/helm-charts/tree/main/charts/jaeger-operator) - and Jaeger deployment for gitpod distributed tracing
-- [metrics-server](https://github.com/kubernetes-sigs/metrics-server)
 - [gitpod.io](https://github.com/gitpod-io/gitpod) deployment
 
 ## Verify the installation
@@ -115,15 +86,15 @@ make auth
 
 > We are aware of the limitation of this approach, and we are working to improve the helm chart to avoid this step.
 
-## Destroy the cluster and AWS resources
+## Destroy the cluster and GCP resources
 
-Remove Cloudformation stacks and EKS cluster running:
+Remove the GKE cluster running:
 
 ```shell
 make uninstall
 ```
 
 > The command asks for a confirmation:
-> `Are you sure you want to delete: Gitpod, Services/Registry, Services/RDS, Services, Addons, Setup (y/n)?`
+> `Are you sure you want to delete: Gitpod (y/n)?`
 
-> Please make sure you delete the S3 bucket used to store the docker registry images!
+> Please make sure you delete the GCP buckets used to store the docker registry images and Cloud SQL database!
