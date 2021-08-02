@@ -1,0 +1,289 @@
+hostname: $DOMAIN
+
+imagePrefix: eu.gcr.io/gitpod-core-dev/build/
+version: $VERSION
+
+installation:
+  region: $REGION
+
+certificatesSecret:
+  secretName: proxy-config-certificates
+
+installPodSecurityPolicies: true
+
+resources:
+  default:
+    cpu: 1m
+    memory: 256Mi
+
+workspaceSizing:
+  requests:
+    cpu: 1m
+    memory: 1.75Gi
+    storage: ""
+  limits:
+    cpu: "6"
+    memory: 12Gi
+  dynamic:
+    cpu:
+      buckets:
+        - budget: 144000
+          limit: 600
+        - budget: 144000
+          limit: 400
+        - budget: 54000
+          limit: 200
+      controlPeriod: 15m
+      samplingPeriod: 10s
+
+# default affinity for gitpod components
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: gitpod.io/workload_services
+              operator: In
+              values:
+                - "true"
+
+db:
+  enabled: true
+  autoMigrate: true
+  port: 3306
+
+# disable local mysql
+mysql:
+  enabled: false
+# do not install minio but configure AWS credentials
+minio:
+  enabled: false
+  accessKey: "#"
+  secretKey: "#"
+
+rabbitmq:
+  readinessProbe:
+    enabled: false
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: gitpod.io/workload_services
+                operator: In
+                values:
+                  - "true"
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: rabbitmq
+            topologyKey: kubernetes.io/hostname
+          weight: 1
+  replicas: 2
+  auth:
+    username: "gitpod"
+    password: "4B6e7m2QjpCgrz9DQT"
+
+defaults:
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+
+tracing:
+  endoint: http://jaeger-collector:14268/api/traces
+  samplerType: const
+  samplerParam: "1"
+
+# TODO: empty array means no login.
+authProviders: []
+
+workspaceScheduler: default-scheduler
+
+components:
+  agentSmith:
+    disabled: true
+
+  db:
+    gcloudSqlProxy:
+      enabled: true
+      instance: $GCP_MYSQL_INSTANCE
+
+  dbMigrations:
+    enabled: false
+
+  registryFacade:
+    hostname: $DOMAIN
+    daemonSet: true
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: gitpod.io/workload_workspaces
+                  operator: In
+                  values:
+                    - "true"
+  server:
+    defaultFeatureFlags: []
+    imageName: server
+    github:
+      app: {}
+    enableLocalApp: false
+    enableOAuthServer: true
+    # TODO: allow custom values
+    blockNewUsers: false
+    blockNewUsersPasslist: []
+    makeNewUsersAdmin: false
+    sessionMaxAgeMs: "28800000" # 8 hours
+    defaultBaseImageRegistryWhitelist:
+      - "https://index.docker.io/v1/"
+    incrementalPrebuilds:
+      commitHistory: 100
+      repositoryPasslist: []
+    wsman: []
+    serverContainer:
+      env:
+        - name: ENABLE_PAYMENT
+          value: "false"
+
+  workspace:
+    affinity:
+      prebuild: "gitpod.io/workload_workspaces"
+      probe: "gitpod.io/workload_workspaces"
+      default: "gitpod.io/workload_workspaces"
+    templates:
+      default:
+        spec:
+          #dnsConfig:
+          #  nameservers:
+          #    - 1.1.1.1
+          #    - 8.8.8.8
+          #dnsPolicy: None # do NOT query against K8s DNS (https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+          env:
+            - name: THEIA_PREVENT_METADATA_ACCESS
+              value: true
+      regular:
+        spec:
+          containers:
+            - name: workspace
+              env:
+                - name: THEIA_RATELIMIT_LOG
+                  value: "50"
+      prebuild:
+        spec:
+          containers:
+            - name: workspace
+              # Intended to reduce the density for prebuilds
+              resources:
+                limits:
+                  cpu: "5"
+                  memory: 12Gi
+                requests:
+                  cpu: 1m
+                  ephemeral-storage: 5Gi
+                  memory: 4608Mi # = 2 * 2304Mi
+
+  proxy:
+    replicas: 2
+    ports:
+      http:
+        expose: true
+        containerPort: 80
+      https:
+        expose: true
+        containerPort: 443
+    certManager:
+      issuerName: $ISSUER_NAME
+    serviceExternalTrafficPolicy: Local
+    serviceType: LoadBalancer
+    serviceAnnotations:
+      external-dns.alpha.kubernetes.io/hostname: $DOMAIN,*.$DOMAIN,*.ws.$DOMAIN
+      cloud.google.com/neg: '{"exposed_ports": {"80":{"name": "gitpod-proxy-http"},"443": {"name": "gitpod-proxy-https"}}}'
+
+  wsManagerBridge:
+    defaultConfig: true
+
+  wsDaemon:
+    hostWorkspaceArea: /mnt/workspaces
+    userNamespaces:
+      fsShift: fuse
+      shiftfsModuleLoader:
+        enabled: false
+    containerRuntime:
+      enabled: true
+      nodeRoots:
+        - /var/lib/containerd/io.containerd.runtime.v2.task/k8s.io
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: gitpod.io/workload_workspaces
+                  operator: In
+                  values:
+                    - "true"
+
+  contentService:
+    name: content-service
+    remoteStorage:
+      gcloud:
+        credentialsFile: $CONTENT_SERVICE_CREDENTIALS
+        projectId: $PROJECT_ID
+        region: $REGION
+    disabled: false
+    resources:
+      cpu: 100m
+      memory: 32Mi
+    ports:
+      rpc:
+        expose: true
+        containerPort: 8080
+      metrics:
+        expose: false
+        containerPort: 9500
+
+  wsScheduler:
+    name: ws-scheduler
+    disabled: true
+    scalerDisabled: true
+
+  wsProxy:
+    name: ws-proxy
+    disabled: false
+    replicas: 2
+    hostHeader: x-wsproxy-host
+    ports:
+      metrics:
+        expose: false
+        containerPort: 60095
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: gitpod.io/workload_services
+                  operator: In
+                  values:
+                    - "true"
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: component
+                    operator: In
+                    values:
+                      - ws-proxy
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+
+# configure default log level
+log:
+  level: info
+
+cert-manager:
+  enabled: true
+  install: false
+  certificate:
+    issuerName: gcloud-issuer
