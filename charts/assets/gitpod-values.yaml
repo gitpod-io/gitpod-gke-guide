@@ -1,3 +1,13 @@
+# Environment variables:
+# - DOMAIN
+# - VERSION
+# - REGION
+# - GCP_MYSQL_INSTANCE
+# - ISSUER_NAME
+# - CONTENT_SERVICE_CREDENTIALS
+# - PROJECT_ID
+# - GCP_MYSQL_CREDENTIALS
+
 hostname: $DOMAIN
 
 imagePrefix: eu.gcr.io/gitpod-core-dev/build/
@@ -51,6 +61,7 @@ db:
   enabled: true
   autoMigrate: true
   port: 3306
+  password: $MYSQL_ROOT_PASSWORD
 
 # disable local mysql
 mysql:
@@ -107,7 +118,7 @@ components:
   db:
     gcloudSqlProxy:
       enabled: true
-      instance: $GCP_MYSQL_INSTANCE
+      instance: $PROJECT_NAME:$REGION:gitpod"
 
   dbMigrations:
     enabled: false
