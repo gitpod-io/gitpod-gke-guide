@@ -71,6 +71,8 @@ minio:
   enabled: false
   accessKey: "#"
   secretKey: "#"
+registry:
+  enabled: false
 
 rabbitmq:
   readinessProbe:
@@ -118,10 +120,11 @@ components:
   db:
     gcloudSqlProxy:
       enabled: true
-      instance: $PROJECT_NAME:$REGION:gitpod"
+      instance: $PROJECT_NAME:$REGION:$MYSQL_INSTANCE_NAME
+      password: $MYSQL_ROOT_PASSWORD
 
   dbMigrations:
-    enabled: false
+    enabled: true
 
   registryFacade:
     hostname: $DOMAIN
@@ -205,7 +208,8 @@ components:
         expose: true
         containerPort: 443
     certManager:
-      issuerName: $ISSUER_NAME
+      issuerName: gcloud-issuer
+      issuerKind: ClusterIssuer
     serviceExternalTrafficPolicy: Local
     serviceType: LoadBalancer
     serviceAnnotations:
@@ -234,14 +238,34 @@ components:
                   operator: In
                   values:
                     - "true"
+    volumes:
+    - name: gcloud-creds
+      secret:
+        secretName: remote-storage-gcloud
+    volumeMounts:
+    - mountPath: /credentials
+      name: gcloud-creds
 
   contentService:
     name: content-service
     remoteStorage:
+      kind: gcloud
+      backupTrail:
+        enabled: true
+        maxLength: 2
       gcloud:
-        credentialsFile: $CONTENT_SERVICE_CREDENTIALS
-        projectId: $PROJECT_ID
+        credentialsFile: /credentials/key.json
+        projectId: $PROJECT_NAME
         region: $REGION
+        parallelUpload: 6
+    volumes:
+      - name: gcloud-creds
+        secret:
+          secretName: remote-storage-gcloud
+    volumeMounts:
+    - mountPath: /credentials
+      name: gcloud-creds
+
     disabled: false
     resources:
       cpu: 100m
@@ -253,6 +277,7 @@ components:
       metrics:
         expose: false
         containerPort: 9500
+
 
   wsScheduler:
     name: ws-scheduler
@@ -289,6 +314,15 @@ components:
               topologyKey: kubernetes.io/hostname
             weight: 100
 
+  wsManager:
+    volumes:
+    - name: gcloud-creds
+      secret:
+        secretName: remote-storage-gcloud
+    volumeMounts:
+    - mountPath: /credentials
+      name: gcloud-creds
+
 # configure default log level
 log:
   level: info
@@ -296,5 +330,4 @@ log:
 cert-manager:
   enabled: true
   install: false
-  certificate:
-    issuerName: gcloud-issuer
+
