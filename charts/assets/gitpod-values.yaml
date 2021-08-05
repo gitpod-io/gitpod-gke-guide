@@ -1,16 +1,16 @@
 # Environment variables:
+# - CONTAINER_REGISTRY_BUCKET
 # - DOMAIN
-# - VERSION
+# - GITPOD_VERSION
+# - MYSQL_GITPOD_PASSWORD
+# - MYSQL_INSTANCE_NAME
+# - PROJECT_NAME
 # - REGION
-# - GCP_MYSQL_INSTANCE
-# - ISSUER_NAME
-# - CONTENT_SERVICE_CREDENTIALS
-# - PROJECT_ID
 
 hostname: $DOMAIN
 
 imagePrefix: eu.gcr.io/gitpod-core-dev/build/
-version: $VERSION
+version: $GITPOD_VERSION
 
 installation:
   region: $REGION
@@ -70,8 +70,76 @@ minio:
   enabled: false
   accessKey: "#"
   secretKey: "#"
+
+# configure docker-registry to use GCS
 docker-registry:
-  enabled: false
+  extraVolumeMounts:
+    - mountPath: /credentials
+      name: gcloud-creds
+  extraVolumes:
+    - name: gcloud-creds
+      secret:
+        secretName: remote-storage-gcloud
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: gitpod.io/workload_services
+                operator: In
+                values:
+                  - "true"
+  replicas: 2
+  enabled: true
+  fullnameOverride: registry
+  # Enable TLS
+  service:
+    port: 443
+  tlsSecretName: "builtin-registry-certs"
+  storage: gcs
+  configData:
+    version: 0.1
+    log:
+      accesslog:
+        disabled: true
+      level: info
+      formatter: json
+    storage:
+      gcs:
+        bucket: $CONTAINER_REGISTRY_BUCKET
+        keyfile: /credentials/key.json
+        rootdirectory: /
+        chunksize: 5242880
+      cache:
+        blobdescriptor: inmemory
+      maintenance:
+        uploadpurging:
+          enabled: true
+          age: 168h
+          interval: 24h
+          dryrun: false
+    http:
+      addr: :5000
+      debug:
+        addr: :5001
+        prometheus:
+          enabled: true
+          path: /metrics
+      secret: phirDEX1torsyumiwnnuh6PRAU4hern
+      tls:
+        certificate: /etc/ssl/docker/tls.crt
+        key: /etc/ssl/docker/tls.key
+        minimumtls: tls1.2
+        ciphersuites:
+          - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+          - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+      headers:
+        X-Content-Type-Options: [nosniff]
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3
 
 rabbitmq:
   readinessProbe:
@@ -113,14 +181,6 @@ authProviders: []
 workspaceScheduler: default-scheduler
 
 components:
-  imageBuilder:
-    registry:
-      name: "$GCR_LOCATION.gcr.io/$PROJECT_NAME"
-      secretName: remote-storage-gcloud
-  imageBuilderMk3:
-    registry:
-      secretName: gitpod-image-pull-secret
-
   agentSmith:
     disabled: true
 
@@ -159,9 +219,6 @@ components:
     defaultBaseImageRegistryWhitelist:
       - "https://index.docker.io/v1/"
       - grc.io
-      - eu.gcr.io
-      - us.gcr.io
-      - asia.gcr.io
     incrementalPrebuilds:
       commitHistory: 100
       repositoryPasslist: []
@@ -342,4 +399,3 @@ log:
 cert-manager:
   enabled: true
   install: false
-

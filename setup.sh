@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 set -eo pipefail
-set -x
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
@@ -32,13 +31,11 @@ OBJECT_STORAGE_SA_EMAIL="${OBJECT_STORAGE_SA}"@"${PROJECT_NAME}".iam.gserviceacc
 DNS_SA=gitpod-dns01-solver
 DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 
-function variables_from_context() {
-    SERVICES_POOL="workload-services"
-    WORKSPACES_POOL="workload-workspaces"
+SERVICES_POOL="workload-services"
+WORKSPACES_POOL="workload-workspaces"
 
-    export SERVICES_POOL
-    export WORKSPACES_POOL
-}
+RELEASE_CHANNEL=${RELEASE_CHANNEL:="rapid"}
+GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.43"}
 
 function check_prerequisites() {
     if [ -z "${PROJECT_NAME}" ]; then
@@ -70,37 +67,22 @@ function check_prerequisites() {
             export PREEMPTIBLE
         fi
     fi
-
-    RELEASE_CHANNEL=${RELEASE_CHANNEL:="rapid"}
-    export RELEASE_CHANNEL
 }
 
 function create_node_pool() {
-    POOL_NAME=$1
-    NODES_LABEL=$2
-
-    local SCOPES=(
-        https://www.googleapis.com/auth/devstorage.read_only
-        https://www.googleapis.com/auth/logging.write
-        https://www.googleapis.com/auth/monitoring
-        https://www.googleapis.com/auth/servicecontrol
-        https://www.googleapis.com/auth/service.management.readonly
-        https://www.googleapis.com/auth/trace.append
-        https://www.googleapis.com/auth/ndev.clouddns.readwrite
-    )
+    local POOL_NAME=$1
+    local NODES_LABEL=$2
 
     gcloud container node-pools \
         create "${POOL_NAME}" \
         --cluster="${CLUSTER_NAME}" \
-        --disk-type="pd-ssd" --disk-size="50GB" \
+        --disk-type="pd-ssd" --disk-size="100GB" \
         --image-type="UBUNTU_CONTAINERD" \
-        --machine-type="e2-standard-4" \
+        --machine-type="n2-standard-4" \
         --num-nodes=1 \
-        --enable-autoupgrade \
-        --enable-autorepair \
-        --enable-autoscaling \
+        --enable-autoupgrade --enable-autorepair --enable-autoscaling \
         --metadata disable-legacy-endpoints=true \
-        --scopes "$(IFS=$','; echo "${SCOPES[*]}")" \
+        --scopes="gke-default,https://www.googleapis.com/auth/ndev.clouddns.readwrite" \
         --node-labels="${NODES_LABEL}" \
         --max-pods-per-node=110 --min-nodes=1 --max-nodes=50 \
         --region="${REGION}" \
@@ -112,40 +94,41 @@ function setup_mysql_database() {
         echo "Cloud SQL (MySQL) Instance already exists."
     else
         # https://cloud.google.com/sql/docs/mysql/create-instance
+        echo "Creating Mysql instance..."
         gcloud sql instances create "${MYSQL_INSTANCE_NAME}" \
             --database-version=MYSQL_5_7 \
             --storage-size=20 \
             --storage-auto-increase \
-            --tier=db-n1-standard-4 \
+            --tier=db-n1-standard-2 \
             --region="${REGION}" \
             --replica-type=FAILOVER \
             --enable-bin-log
 
+        echo "Creating gitpod Mysql database..."
         gcloud sql databases create gitpod  --instance="${MYSQL_INSTANCE_NAME}"
     fi
 
+    echo "Creating gitpod Mysql user and setting a password..."
     MYSQL_GITPOD_PASSWORD=$(openssl rand -base64 20)
     export MYSQL_GITPOD_PASSWORD
     gcloud sql users create gitpod \
-        --instance="${MYSQL_INSTANCE_NAME}" \
-        --password="${MYSQL_GITPOD_PASSWORD}"
+        --instance="${MYSQL_INSTANCE_NAME}" --password="${MYSQL_GITPOD_PASSWORD}"
 }
 
 function create_service_account() {
-    local SA=$1
-    shift
-    local EMAIL=$1
-    shift
+    local SA=$1;shift
+    local EMAIL=$1;shift
     local ROLES=( "$@" )
     if [ "$(gcloud iam service-accounts list --filter="displayName:${SA}" --format="value(displayName)" | grep "${SA}" || echo "empty")" == "${SA}" ]; then
         echo "IAM service account ${SA} already exists."
-    else
-        gcloud iam service-accounts create "${SA}" --display-name "${SA}"
-        for ROLE in ${ROLES[*]}; do
-            gcloud projects add-iam-policy-binding "${PROJECT_NAME}" \
-                --member serviceAccount:"${EMAIL}" --role="${ROLE}"
-        done
+        return
     fi
+
+    gcloud iam service-accounts create "${SA}" --display-name "${SA}"
+    for ROLE in ${ROLES[*]}; do
+        gcloud projects add-iam-policy-binding "${PROJECT_NAME}" \
+            --member serviceAccount:"${EMAIL}" --role="${ROLE}"
+    done
 }
 
 function create_namespace() {
@@ -164,7 +147,8 @@ function install_jaeger_operator(){
         --set crd.install=false \
         -f "${DIR}/charts/assets/jaeger-values.yaml"
 
-    kubectl wait --for=condition=available --timeout=300s deployment/jaegeroperator-jaeger-operator -n jaeger-operator
+    kubectl wait --for=condition=available --timeout=300s \
+        deployment/jaegeroperator-jaeger-operator -n jaeger-operator
     kubectl apply -f "${DIR}/charts/assets/jaeger-gitpod.yaml"
 }
 
@@ -173,10 +157,8 @@ function setup_managed_dns() {
         if [ "$(gcloud iam service-accounts list --filter="displayName:${DNS_SA}" --format="value(displayName)" | grep "${DNS_SA}" || echo "empty")" == "${DNS_SA}" ]; then
             echo "IAM service account ${DNS_SA} already exists."
         else
-            gcloud iam service-accounts create "${DNS_SA}" --display-name "${DNS_SA}"
-            gcloud projects add-iam-policy-binding "${PROJECT_NAME}" \
-                --member serviceAccount:"${DNS_SA_EMAIL}" \
-                --role roles/dns.admin
+            local DNS_ROLES=( "roles/dns.admin" )
+            create_service_account "${DNS_SA}" "${DNS_SA_EMAIL}" "${DNS_ROLES[@]}"
         fi
         if [ ! -f "$DIR/dns-credentials.json" ]; then
             gcloud iam service-accounts keys create --iam-account "${DNS_SA_EMAIL}" "$DIR"/dns-credentials.json
@@ -198,6 +180,7 @@ function setup_managed_dns() {
             bitnami/external-dns \
             --set provider=google \
             --set google.project="${PROJECT_NAME}" \
+            --set logFormat=json \
             --set google.serviceAccountSecretKey=dns-credentials.json
 
         if ! kubectl get secret --namespace cert-manager clouddns-dns01-solver-svc-acct; then
@@ -231,13 +214,14 @@ function install_gitpod() {
         kubectl create secret generic gcloud-sql-token --from-file=credentials.json="${DIR}/mysql-credentials.json"
     fi
     if ! kubectl get secret gitpod-image-pull-secret >/dev/null 2>&1;then
+        DOCKER_AUTH=$(printf "%s:%s" "_json_key" "$(cat "${DIR}/registry-credentials.json")" | base64 -w0)
         cat <<EOL | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
   name: gitpod-image-pull-secret
 data:
-  .dockerconfigjson: $(echo "{\"auths\":{\"us.gcr.io\": {\"auth\": \"$(printf "%s:%s" "_json_key" "$(cat "${DIR}/registry-credentials.json")" | base64 -w0)\"}}}" | base64 -w0)
+  .dockerconfigjson: $(echo "{\"auths\":{\"us.gcr.io\": {\"auth\": \"${DOCKER_AUTH}\"}}}" | base64 -w0)
 type: kubernetes.io/dockerconfigjson
 EOL
     fi
@@ -246,7 +230,10 @@ EOL
         kubectl create secret generic remote-storage-gcloud --from-file=key.json="${DIR}/gs-credentials.json"
     fi
 
-    envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod --debug -f -
+    CONTAINER_REGISTRY_BUCKET="container-registry-${CLUSTER_NAME}-${PROJECT_ID}"
+    export CONTAINER_REGISTRY_BUCKET
+
+    envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
 }
 
 function service_account_exits() {
@@ -260,7 +247,6 @@ function service_account_exits() {
 
 function install() {
     check_prerequisites
-    variables_from_context
 
     echo "Updating helm repositories..."
     helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
@@ -331,6 +317,8 @@ function install() {
             --disk-type="pd-ssd" --disk-size="50GB" \
             --image-type="UBUNTU_CONTAINERD" \
             --machine-type="e2-standard-2" \
+            --version="1.21.3-gke.100" \
+            --cluster-version="latest" \
             --region="${REGION}" \
             --service-account "$GKE_SA_EMAIL" \
             --num-nodes=1 \
@@ -388,7 +376,6 @@ function install() {
 
 function uninstall() {
     check_prerequisites
-    variables_from_context
 
     read -p "Are you sure you want to delete: Gitpod (y/n)? " -n 1 -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -420,10 +407,9 @@ function auth() {
     if [ ! -f "${AUTHPROVIDERS_CONFIG}" ]; then
         echo "The auth provider configuration file ${AUTHPROVIDERS_CONFIG} does not exist."
         exit 1
-    else
-        echo "Using the auth providers configuration file: ${AUTHPROVIDERS_CONFIG}"
     fi
 
+    echo "Using the auth providers configuration file: ${AUTHPROVIDERS_CONFIG}"
     # Patching the configuration with the user auth provider/s
     kubectl patch configmap auth-providers-config --type merge --patch "$(cat ${AUTHPROVIDERS_CONFIG})"
     # Restart the server component
