@@ -3,9 +3,8 @@
 set -eo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-
-if [ ! -f .env ]; then
-    echo "Missing .env configuration file."
+if [ ! -f "${DIR}/.env" ]; then
+    echo "Missing ${DIR}/.env configuration file."
     exit 1;
 fi
 
@@ -18,9 +17,6 @@ set -a
 # GKE Cluster
 GKE_SA=gitpod-gke
 GKE_SA_EMAIL="${GKE_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
-# Container registry
-GCR_SA=gitpod-gcr
-GCR_SA_EMAIL="${GCR_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 # Cloud SQL - mysql
 MYSQL_SA=gitpod-mysql
 MYSQL_SA_EMAIL="${MYSQL_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
@@ -30,7 +26,7 @@ OBJECT_STORAGE_SA_EMAIL="${OBJECT_STORAGE_SA}"@"${PROJECT_NAME}".iam.gserviceacc
 # Cloud DNS
 DNS_SA=gitpod-dns01-solver
 DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
-
+# Name of the node-pools for Gitpod services and workspaces
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
 
@@ -80,7 +76,7 @@ function create_node_pool() {
         --image-type="UBUNTU_CONTAINERD" \
         --machine-type="n2-standard-4" \
         --num-nodes=1 \
-        --enable-autoupgrade --enable-autorepair --enable-autoscaling \
+        --no-enable-autoupgrade --enable-autorepair --enable-autoscaling \
         --metadata disable-legacy-endpoints=true \
         --scopes="gke-default,https://www.googleapis.com/auth/ndev.clouddns.readwrite" \
         --node-labels="${NODES_LABEL}" \
@@ -213,18 +209,6 @@ function install_gitpod() {
     if ! kubectl get secret gcloud-sql-token >/dev/null 2>&1;then
         kubectl create secret generic gcloud-sql-token --from-file=credentials.json="${DIR}/mysql-credentials.json"
     fi
-    if ! kubectl get secret gitpod-image-pull-secret >/dev/null 2>&1;then
-        DOCKER_AUTH=$(printf "%s:%s" "_json_key" "$(cat "${DIR}/registry-credentials.json")" | base64 -w0)
-        cat <<EOL | kubectl apply -f -
-apiVersion: v1
-kind: Secret
-metadata:
-  name: gitpod-image-pull-secret
-data:
-  .dockerconfigjson: $(echo "{\"auths\":{\"us.gcr.io\": {\"auth\": \"${DOCKER_AUTH}\"}}}" | base64 -w0)
-type: kubernetes.io/dockerconfigjson
-EOL
-    fi
 
     if ! kubectl get secret remote-storage-gcloud >/dev/null 2>&1;then
         kubectl create secret generic remote-storage-gcloud --from-file=key.json="${DIR}/gs-credentials.json"
@@ -283,13 +267,6 @@ function install() {
         create_service_account "${GKE_SA}" "${GKE_SA_EMAIL}" "${GKE_ROLES[@]}"
     fi
 
-    local GCR_ROLES=( "roles/storage.admin" )
-    create_service_account "${GCR_SA}" "${GCR_SA_EMAIL}" "${GCR_ROLES[@]}"
-    if [ ! -f "$DIR/registry-credentials.json" ]; then
-        gcloud iam service-accounts keys create \
-            --iam-account "${GCR_SA_EMAIL}" "$DIR/registry-credentials.json"
-    fi
-
     local MYSQL_ROLES=( "roles/cloudsql.client" )
     create_service_account "${MYSQL_SA}" "${MYSQL_SA_EMAIL}" "${MYSQL_ROLES[@]}"
     if [ ! -f "$DIR/mysql-credentials.json" ]; then
@@ -318,23 +295,21 @@ function install() {
             --image-type="UBUNTU_CONTAINERD" \
             --machine-type="e2-standard-2" \
             --version="1.21.3-gke.100" \
-            --cluster-version="latest" \
             --region="${REGION}" \
             --service-account "$GKE_SA_EMAIL" \
             --num-nodes=1 \
             --no-enable-basic-auth \
             --release-channel="${RELEASE_CHANNEL}" \
             --enable-autoscaling \
-            --metadata=disable-legacy-endpoints=true \
             --enable-ip-alias \
-            --max-pods-per-node=110 \
-            --default-max-pods-per-node=110 \
-            --min-nodes=0 --max-nodes=1 \
             --enable-network-policy \
+            --metadata=disable-legacy-endpoints=true \
+            --max-pods-per-node=110 --default-max-pods-per-node=110 \
+            --min-nodes=0 --max-nodes=1 \
             --addons=HorizontalPodAutoscaling,NodeLocalDNS,NetworkPolicy \
             "${PREEMPTIBLE}"
 
-        # delete default node pool.
+        # delete default node pool (is not possible to create a cluster without nodes)
         gcloud --quiet container node-pools delete default-pool --cluster="${CLUSTER_NAME}" --region="${REGION}"
     fi
 
@@ -354,8 +329,7 @@ function install() {
         # create the cluster role binding to allow the current user to create new rbac rules.
         # Needed for installing addons, istio, etc.
         kubectl create clusterrolebinding cluster-admin-binding \
-            --clusterrole=cluster-admin \
-            --user="$(gcloud config get-value core/account)"
+            --clusterrole=cluster-admin --user="$(gcloud config get-value core/account)"
     fi
 
     # Create secret with container registry credentials
@@ -381,11 +355,10 @@ function uninstall() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         set +e
         echo "Deleting IAM service accounts credential files..."
-        rm -rf dns-credentials.json gs-credentials.json mysql-credentials.json registry-credentials.json
-        kubectl delete secret clouddns-dns01-solver-svc-acct
-        kubectl delete secret gcloud-sql-token
-        kubectl delete secret remote-storage-gcloud
-        kubectl delete secret gitpod-image-pull-secret
+        rm -rf dns-credentials.json gs-credentials.json mysql-credentials.json
+        kubectl delete secret clouddns-dns01-solver-svc-acct gcloud-sql-token remote-storage-gcloud gitpod-image-pull-secret
+        # ensure we remove the GCP Load Balancer.
+        kubectl delete service proxy
         echo "Deleting node-pools..."
         gcloud container node-pools delete workload-services   --region "${REGION}" --cluster "${CLUSTER_NAME}" --quiet
         gcloud container node-pools delete workload-workspaces --region "${REGION}" --cluster "${CLUSTER_NAME}" --quiet
@@ -393,12 +366,11 @@ function uninstall() {
         gcloud container clusters   delete "${CLUSTER_NAME}"   --region "${REGION}" --quiet
         echo "Deleting IAM service accounts..."
         gcloud iam service-accounts delete "${GKE_SA_EMAIL}"            --quiet
-        gcloud iam service-accounts delete "${GCR_SA_EMAIL}"            --quiet
         gcloud iam service-accounts delete "${DNS_SA_EMAIL}"            --quiet
         gcloud iam service-accounts delete "${OBJECT_STORAGE_SA_EMAIL}" --quiet
         gcloud iam service-accounts delete "${MYSQL_SA_EMAIL}"          --quiet
 
-        printf "\n%s" "Please make sure to delete the project ${PROJECT_NAME}"
+        printf "\n%s\n" "Please make sure to delete the project ${PROJECT_NAME}"
     fi
 }
 
@@ -424,10 +396,10 @@ function main() {
 
     case $1 in
         '--install')
-            install ".env"
+            install
         ;;
         '--uninstall')
-            uninstall ".env"
+            uninstall
         ;;
         '--auth')
             auth "auth-providers-patch.yaml"
