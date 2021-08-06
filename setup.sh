@@ -30,7 +30,9 @@ DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
 
+GKE_VERSION=${GKE_VERSION:="1.21.3-gke.100"}
 RELEASE_CHANNEL=${RELEASE_CHANNEL:="rapid"}
+
 GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.43"}
 
 function check_prerequisites() {
@@ -55,14 +57,16 @@ function check_prerequisites() {
         export REGION
     fi
 
-    if [ -z "${PREEMPTIBLE}" ]; then
-        echo "Missing PREEMPTIBLE environment variable. Using regular nodes."
-    else
-        if [ "${PREEMPTIBLE}" == "true" ]; then
-            PREEMPTIBLE="--preemptible"
-            export PREEMPTIBLE
-        fi
+    if [ -n "${PREEMPTIBLE}" ] && [ "${PREEMPTIBLE}" == "true" ]; then
+        PREEMPTIBLE="--preemptible"
+        export PREEMPTIBLE
     fi
+
+    NODES_LOCATIONS=
+    if [ -n "${ZONES}" ]; then
+        NODES_LOCATIONS="--node-locations=${ZONES}"
+    fi
+    export NODES_LOCATIONS
 }
 
 function create_node_pool() {
@@ -72,11 +76,11 @@ function create_node_pool() {
     gcloud container node-pools \
         create "${POOL_NAME}" \
         --cluster="${CLUSTER_NAME}" \
-        --disk-type="pd-ssd" --disk-size="100GB" \
+        --disk-type="pd-ssd" --disk-size="375GB" \
         --image-type="UBUNTU_CONTAINERD" \
         --machine-type="n2-standard-4" \
         --num-nodes=1 \
-        --no-enable-autoupgrade --enable-autorepair --enable-autoscaling \
+        --enable-autoupgrade --enable-autorepair --enable-autoscaling \
         --metadata disable-legacy-endpoints=true \
         --scopes="gke-default,https://www.googleapis.com/auth/ndev.clouddns.readwrite" \
         --node-labels="${NODES_LABEL}" \
@@ -101,7 +105,7 @@ function setup_mysql_database() {
             --enable-bin-log
 
         echo "Creating gitpod Mysql database..."
-        gcloud sql databases create gitpod  --instance="${MYSQL_INSTANCE_NAME}"
+        gcloud sql databases create gitpod --instance="${MYSQL_INSTANCE_NAME}"
     fi
 
     echo "Creating gitpod Mysql user and setting a password..."
@@ -216,6 +220,8 @@ function install_gitpod() {
 
     CONTAINER_REGISTRY_BUCKET="container-registry-${CLUSTER_NAME}-${PROJECT_ID}"
     export CONTAINER_REGISTRY_BUCKET
+    # the bucket must exists before installing the docker-registry.
+    gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
 
     envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
 }
@@ -289,25 +295,26 @@ function install() {
         echo "Cluster with name ${CLUSTER_NAME} already exists. Skip cluster creation.";
         gcloud container clusters get-credentials --region="${REGION}" "${CLUSTER_NAME}"
     else
+        # shellcheck disable=SC2086
         gcloud container clusters \
             create "${CLUSTER_NAME}" \
             --disk-type="pd-ssd" --disk-size="50GB" \
             --image-type="UBUNTU_CONTAINERD" \
             --machine-type="e2-standard-2" \
-            --version="1.21.3-gke.100" \
+            --cluster-version="${GKE_VERSION}" \
             --region="${REGION}" \
             --service-account "$GKE_SA_EMAIL" \
             --num-nodes=1 \
             --no-enable-basic-auth \
             --release-channel="${RELEASE_CHANNEL}" \
             --enable-autoscaling \
-            --enable-ip-alias \
-            --enable-network-policy \
+            --enable-ip-alias --enable-network-policy \
+            --create-subnetwork name="gitpod-${CLUSTER_NAME}" \
             --metadata=disable-legacy-endpoints=true \
             --max-pods-per-node=110 --default-max-pods-per-node=110 \
             --min-nodes=0 --max-nodes=1 \
             --addons=HorizontalPodAutoscaling,NodeLocalDNS,NetworkPolicy \
-            "${PREEMPTIBLE}"
+            ${NODES_LOCATIONS} ${PREEMPTIBLE}
 
         # delete default node pool (is not possible to create a cluster without nodes)
         gcloud --quiet container node-pools delete default-pool --cluster="${CLUSTER_NAME}" --region="${REGION}"
@@ -409,7 +416,8 @@ function main() {
             echo "Usage: $0 [--install|--uninstall|--auth]"
         ;;
     esac
-    echo "done"
+
+    echo "done."
 }
 
 main "$@"

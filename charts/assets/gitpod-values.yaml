@@ -228,8 +228,6 @@ components:
           value: "false"
 
   workspace:
-    pullSecret:
-      secretName: gitpod-image-pull-secret
     affinity:
       prebuild: "gitpod.io/workload_workspaces"
       probe: "gitpod.io/workload_workspaces"
