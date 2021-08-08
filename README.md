@@ -5,7 +5,7 @@
 Before starting the installation process, you need:
 
 - A GCP account with Administrator access
-  - [Create one now by clicking here](https://aws.amazon.com/getting-started/)
+  - [Create one now by clicking here](https://console.cloud.google.com/)
 - GCP credentials set up.
 - A `.env` file with basic details about the environment.
   - We provide an example of such file [here](.env.example).
@@ -20,9 +20,9 @@ make install
 The whole process takes around twenty minutes. In the end, the following resources are created:
 
 - a GKE cluster running Kubernetes v1.21
-
-- ALB load balancer with TLS termination and re-encryption
+- GCP L4 load balancer
 - Cloud SQL Mysql database
+- Cloud DNS zone
 - In-cluster docker registry using [Cloud Storage](https://cloud.google.com/storage) as storage backend
 - [calico](https://docs.projectcalico.org) as CNI and NetworkPolicy implementation
 - [cert-manager](https://cert-manager.io/) for self-signed SSL certificates
@@ -60,15 +60,13 @@ When the provisioning and configuration of the cluster is done, the script shows
 like:
 
 ```shell
-Load balancer hostname: k8s-default-gitpod-.......elb.amazonaws.com
+Load balancer IP address: XXX.XXX.XXX.XXX
 ```
 
-This is the value of the `CNAME` field that needs to be configured in the DNS domain, for the record `<domain>`, `*.ws.<domain>` and `*.<domain>`
-
-After these three records are configured, please open the URL `https://<domain>/workspaces`.
+Please open the URL `https://<domain>/workspaces`.
 It should display the gitpod login page similar to the next image.
 
-> If the property `ROUTE53_ZONEID` is enabled in the .env file, we install [external-dns](https://github.com/kubernetes-sigs/external-dns) and such update is not required
+*DNS propagation* can take several minutes.
 
 ![Gitpod login page](./images/gitpod-login.png "Gitpod Login Page")
 
@@ -88,7 +86,7 @@ make auth
 
 ## Destroy the cluster and GCP resources
 
-Remove the GKE cluster running:
+Remove the GCP cluster running:
 
 ```shell
 make uninstall
