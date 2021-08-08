@@ -5,7 +5,9 @@ RUN apk add --no-cache \
     curl \
     python3 \
     py3-pip \
-    jq
+    jq \
+    gettext \
+    openssl
 
 ARG CLOUD_SDK_VERSION=351.0.0
 ARG HELM_VERSION=v3.6.3

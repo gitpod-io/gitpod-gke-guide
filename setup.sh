@@ -221,7 +221,9 @@ function install_gitpod() {
     CONTAINER_REGISTRY_BUCKET="container-registry-${CLUSTER_NAME}-${PROJECT_ID}"
     export CONTAINER_REGISTRY_BUCKET
     # the bucket must exists before installing the docker-registry.
-    gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
+    if ! gsutil acl get "gs://${CONTAINER_REGISTRY_BUCKET}" >/dev/null 2>&1;then
+        gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
+    fi
 
     envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
 }
@@ -416,8 +418,7 @@ function main() {
             echo "Usage: $0 [--install|--uninstall|--auth]"
         ;;
     esac
-
-    echo "done."
+    echo "done"
 }
 
 main "$@"
