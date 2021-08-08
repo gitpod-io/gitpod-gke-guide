@@ -390,6 +390,9 @@ function auth() {
         exit 1
     fi
 
+    gcloud config set project "${PROJECT_NAME}"
+    gcloud container clusters get-credentials --region="${REGION}" "${CLUSTER_NAME}"
+
     echo "Using the auth providers configuration file: ${AUTHPROVIDERS_CONFIG}"
     # Patching the configuration with the user auth provider/s
     kubectl patch configmap auth-providers-config --type merge --patch "$(cat ${AUTHPROVIDERS_CONFIG})"
