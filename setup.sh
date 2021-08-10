@@ -104,6 +104,9 @@ function setup_mysql_database() {
             --replica-type=FAILOVER \
             --enable-bin-log
 
+        gcloud sql instances patch "${MYSQL_INSTANCE_NAME}" --database-flags \
+            explicit_defaults_for_timestamp=off
+
         echo "Creating gitpod Mysql database..."
         gcloud sql databases create gitpod --instance="${MYSQL_INSTANCE_NAME}"
     fi
@@ -355,6 +358,17 @@ function install() {
     setup_mysql_database
     install_jaeger_operator
     install_gitpod
+
+    LB_IP_ADDRESS=$(kubectl get ingress gitpod -o json | jq -r .status.loadBalancer.ingress[0].ip)
+    if [ -n "${LB_IP_ADDRESS}" ];then
+        printf '\nLoad balancer IP address: %s\n' "${LB_IP_ADDRESS}"
+    fi
+
+}
+
+function setup_kubectl() {
+    gcloud config set project "${PROJECT_NAME}"
+    gcloud container clusters get-credentials --region="${REGION}" "${CLUSTER_NAME}"
 }
 
 function uninstall() {
@@ -363,6 +377,7 @@ function uninstall() {
     read -p "Are you sure you want to delete: Gitpod (y/n)? " -n 1 -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         set +e
+        setup_kubectl
         echo "Deleting IAM service accounts credential files..."
         rm -rf dns-credentials.json gs-credentials.json mysql-credentials.json
         kubectl delete secret clouddns-dns01-solver-svc-acct gcloud-sql-token remote-storage-gcloud gitpod-image-pull-secret
@@ -379,7 +394,10 @@ function uninstall() {
         gcloud iam service-accounts delete "${OBJECT_STORAGE_SA_EMAIL}" --quiet
         gcloud iam service-accounts delete "${MYSQL_SA_EMAIL}"          --quiet
 
-        printf "\n%s\n" "Please make sure to delete the project ${PROJECT_NAME}"
+        printf "\n%s\n" "Please make sure to delete the project ${PROJECT_NAME} and services:"
+        printf "%s\n" "- https://console.cloud.google.com/sql/instances?project=${PROJECT_NAME}"
+        printf "%s\n" "- https://console.cloud.google.com/storage/browser?project=${PROJECT_NAME}"
+        printf "%s\n" "- https://console.cloud.google.com/net-services/dns/zones?project=${PROJECT_NAME}"
     fi
 }
 
@@ -390,8 +408,7 @@ function auth() {
         exit 1
     fi
 
-    gcloud config set project "${PROJECT_NAME}"
-    gcloud container clusters get-credentials --region="${REGION}" "${CLUSTER_NAME}"
+    setup_kubectl
 
     echo "Using the auth providers configuration file: ${AUTHPROVIDERS_CONFIG}"
     # Patching the configuration with the user auth provider/s
