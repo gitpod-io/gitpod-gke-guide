@@ -105,7 +105,7 @@ function setup_mysql_database() {
             --enable-bin-log
 
         gcloud sql instances patch "${MYSQL_INSTANCE_NAME}" --database-flags \
-            explicit_defaults_for_timestamp=off
+            explicit_defaults_for_timestamp=off --quiet
 
         echo "Creating gitpod Mysql database..."
         gcloud sql databases create gitpod --instance="${MYSQL_INSTANCE_NAME}"
@@ -359,7 +359,7 @@ function install() {
     install_jaeger_operator
     install_gitpod
 
-    LB_IP_ADDRESS=$(kubectl get ingress gitpod -o json | jq -r .status.loadBalancer.ingress[0].ip)
+    LB_IP_ADDRESS=$(kubectl get service proxy -o json | jq -r .status.loadBalancer.ingress[0].ip)
     if [ -n "${LB_IP_ADDRESS}" ];then
         printf '\nLoad balancer IP address: %s\n' "${LB_IP_ADDRESS}"
     fi
