@@ -5,8 +5,8 @@
 Before starting the installation process, you need:
 
 - A GCP account with Administrator access
-  - [Create one now by clicking here](https://console.cloud.google.com/)
-- GCP credentials set up.
+  - [Create one now by clicking here](https://console.cloud.google.com/freetrial)
+- GCP credentials set up. Install [gcloud](https://cloud.google.com/sdk/docs/install)
 - A `.env` file with basic details about the environment.
   - We provide an example of such file [here](.env.example).
 - [Docker](https://docs.docker.com/engine/install/) installed on your machine, or better, a Gitpod workspace :)
@@ -19,15 +19,15 @@ make install
 
 The whole process takes around twenty minutes. In the end, the following resources are created:
 
-- a GKE cluster running Kubernetes v1.21
-- GCP L4 load balancer
-- Cloud SQL Mysql database
-- Cloud DNS zone
-- In-cluster docker registry using [Cloud Storage](https://cloud.google.com/storage) as storage backend
-- [calico](https://docs.projectcalico.org) as CNI and NetworkPolicy implementation
-- [cert-manager](https://cert-manager.io/) for self-signed SSL certificates
-- [Jaeger operator](https://github.com/jaegertracing/helm-charts/tree/main/charts/jaeger-operator) - and Jaeger deployment for gitpod distributed tracing
-- [gitpod.io](https://github.com/gitpod-io/gitpod) deployment
+- a GKE cluster running Kubernetes v1.21 ([rapid channel](https://cloud.google.com/kubernetes-engine/docs/release-notes-rapid)).
+- GCP L4 load balancer.
+- Cloud SQL - Mysql database.
+- Cloud DNS zone.
+- In-cluster docker registry using [Cloud Storage](https://cloud.google.com/storage) as storage backend.
+- [calico](https://docs.projectcalico.org) as CNI and NetworkPolicy implementation.
+- [cert-manager](https://cert-manager.io/) for self-signed SSL certificates.
+- [Jaeger operator](https://github.com/jaegertracing/helm-charts/tree/main/charts/jaeger-operator) - and Jaeger deployment for gitpod distributed tracing.
+- [gitpod.io](https://github.com/gitpod-io/gitpod) deployment.
 
 ## Verify the installation
 
@@ -51,8 +51,6 @@ ws-manager-5d57746845-t74n5        2/2     Running   0          6m16s
 ws-manager-bridge-79f7fcb5-7w4p5   1/1     Running   0          6m16s
 ws-proxy-7fc9665-rchr9             1/1     Running   0          5m57s
 ```
-
-TODO: add additional `kubectl log` commands
 
 ### Test Gitpod workspaces
 
