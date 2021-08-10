@@ -35,9 +35,9 @@ The whole process takes around twenty minutes. In the end, the following resourc
 
   Depending on the size of the configured `disks size` and `machine-type`, you need to request an [increase in the service quota](https://console.cloud.google.com/iam-admin/quotas?usage=USED)
 
-  ![https://console.cloud.google.com/iam-admin/quotas?usage=USED](./images/quota.png "GCP project Quota")
+  [!["GCP project Quota"](./images/quota.png)](https://console.cloud.google.com/iam-admin/quotas?usage=USED)
 
-  After increasing the quota just run `make install`
+  *After increasing the quota, retry the installation running `make install`*
 
 ## Verify the installation
 
