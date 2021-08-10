@@ -76,7 +76,7 @@ function create_node_pool() {
     gcloud container node-pools \
         create "${POOL_NAME}" \
         --cluster="${CLUSTER_NAME}" \
-        --disk-type="pd-ssd" --disk-size="375GB" \
+        --disk-type="pd-ssd" --disk-size="100GB" \
         --image-type="UBUNTU_CONTAINERD" \
         --machine-type="n2-standard-4" \
         --num-nodes=1 \

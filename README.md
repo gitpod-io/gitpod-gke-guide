@@ -29,6 +29,16 @@ The whole process takes around twenty minutes. In the end, the following resourc
 - [Jaeger operator](https://github.com/jaegertracing/helm-charts/tree/main/charts/jaeger-operator) - and Jaeger deployment for gitpod distributed tracing.
 - [gitpod.io](https://github.com/gitpod-io/gitpod) deployment.
 
+## Common errors running make install
+
+- Insufficient regional quota to satisfy request
+
+  Depending on the size of the configured `disks size` and `machine-type`, you need to request an [increase in the service quota](https://console.cloud.google.com/iam-admin/quotas?usage=USED)
+
+  ![https://console.cloud.google.com/iam-admin/quotas?usage=USED](./images/quota.png "GCP project Quota")
+
+  After increasing the quota just run `make install`
+
 ## Verify the installation
 
 First, check that Gitpod components are running.
