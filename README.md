@@ -40,6 +40,30 @@ The whole process takes around twenty minutes. In the end, the following resourc
 
   *After increasing the quota, retry the installation running `make install`*
 
+- Some pods never start (`Init` state)
+
+  ```shell
+  ❯ kubectl get pods -l component=proxy
+  NAME                     READY   STATUS    RESTARTS   AGE
+  proxy-5998488f4c-t8vkh   0/1     Init 0/1  0          5m
+  ```
+
+  One of the reason could be related to the [DNS01 challenge](https://cert-manager.io/docs/configuration/acme/dns01/) validation for the wildcard certificates can take several minutes (*DNS propagation*).
+  So, once the Certificate is `Ready`, maybe it will be needed to restart the deployments
+
+  ```shell
+  ❯ kubectl get certificate
+  NAME                        READY   SECRET                      AGE
+  proxy-config-certificates   True    proxy-config-certificates   5m
+  ```
+
+  running the commands:
+
+  ```shell
+  kubectl rollout restart deployment/server
+  kubectl rollout restart deployment/ws-proxy
+  ```
+
 ## Verify the installation
 
 First, check that Gitpod components are running.
