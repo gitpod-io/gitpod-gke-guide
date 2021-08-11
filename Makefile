@@ -9,14 +9,14 @@ build: ## Build docker image containing the required tools for the installation
 	@docker build --quiet . -t ${IMG}
 
 DOCKER_RUN_CMD = docker run -it \
-	--env GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json \
 	--volume $$HOME/.config/gcloud:/root/.config/gcloud \
+	--volume $$HOME/.kube/config:/root/.kube/config \
 	--volume $$PWD:/gitpod \
 	${IMG} $(1)
 
 install: ## Install Gitpod
 	@echo "Starting install process..."
-	@test -s $$HOME/.config/gcloud/application_default_credentials.json || { echo "GCP default dredentials do not exist. Run [gcloud auth application-default login] to configure them"; exit 1; }
+	@test $(shell gcloud info --format="value(config.account)") || { echo "GCP dredentials do not exist. Run [gcloud auth login] to configure them"; exit 1; }
 	$(call DOCKER_RUN_CMD, --install)
 
 uninstall: ## Uninstall Gitpod

@@ -30,8 +30,7 @@ DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
 
-GKE_VERSION=${GKE_VERSION:="1.21.3-gke.100"}
-RELEASE_CHANNEL=${RELEASE_CHANNEL:="rapid"}
+GKE_VERSION=${GKE_VERSION:="1.20.8-gke.900"}
 
 GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.55"}
 
@@ -80,7 +79,7 @@ function create_node_pool() {
         --image-type="UBUNTU_CONTAINERD" \
         --machine-type="n2-standard-4" \
         --num-nodes=1 \
-        --enable-autoupgrade --enable-autorepair --enable-autoscaling \
+        --no-enable-autoupgrade --enable-autorepair --enable-autoscaling \
         --metadata disable-legacy-endpoints=true \
         --scopes="gke-default,https://www.googleapis.com/auth/ndev.clouddns.readwrite" \
         --node-labels="${NODES_LABEL}" \
@@ -240,6 +239,25 @@ function service_account_exits() {
     fi
 }
 
+function wait_for_load_balancer() {
+    sleep 10
+
+    COUNT=0
+    LB_IP_ADDRESS=""
+    while [ "${LB_IP_ADDRESS}" == "" ] && [ "${COUNT}" -lt 5 ];do
+        printf "."
+        LB_IP_ADDRESS=$(kubectl get service proxy -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        ((COUNT+=1))
+        sleep 5
+    done
+
+    if [ -n "${LB_IP_ADDRESS}" ];then
+        printf '\nLoad balancer IP address: %s\n' "${LB_IP_ADDRESS}"
+    else
+        printf '\n The load balancer is still being provisioned. Wait a couple of minutes.'
+    fi
+}
+
 function install() {
     check_prerequisites
 
@@ -311,8 +329,8 @@ function install() {
             --service-account "$GKE_SA_EMAIL" \
             --num-nodes=1 \
             --no-enable-basic-auth \
-            --release-channel="${RELEASE_CHANNEL}" \
             --enable-autoscaling \
+            --enable-autorepair --no-enable-autoupgrade \
             --enable-ip-alias --enable-network-policy \
             --create-subnetwork name="gitpod-${CLUSTER_NAME}" \
             --metadata=disable-legacy-endpoints=true \
@@ -359,11 +377,7 @@ function install() {
     install_jaeger_operator
     install_gitpod
 
-    LB_IP_ADDRESS=$(kubectl get service proxy -o json | jq -r .status.loadBalancer.ingress[0].ip)
-    if [ -n "${LB_IP_ADDRESS}" ];then
-        printf '\nLoad balancer IP address: %s\n' "${LB_IP_ADDRESS}"
-    fi
-
+    wait_for_load_balancer
 }
 
 function setup_kubectl() {
