@@ -49,7 +49,8 @@ The whole process takes around twenty minutes. In the end, the following resourc
   ```
 
   One of the reason could be related to the [DNS01 challenge](https://cert-manager.io/docs/configuration/acme/dns01/) validation for the wildcard certificates can take several minutes (*DNS propagation*).
-  So, once the Certificate is `Ready`, maybe it will be needed to restart the deployments
+  So, once the Certificate is `Ready`, maybe it will be needed to restart the deployments.
+  The DNS01 challenge needs create a TXT record on the domain name. If the domain name is not in the `PROJECT_NAME`, this will need to be done manually. The `SETUP_MANAGED_DNS` should be set to `false`.
 
   ```shell
   ❯ kubectl get certificate
