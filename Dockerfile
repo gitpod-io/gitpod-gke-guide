@@ -29,6 +29,9 @@ ENV PATH /google-cloud-sdk/bin:$PATH
 RUN gcloud components install beta
 RUN gcloud components install alpha
 
+RUN curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.12.2/yq_linux_amd64 -o /usr/local/bin/yq \
+  && chmod +x /usr/local/bin/yq
+
 WORKDIR /gitpod
 
 COPY . /gitpod
