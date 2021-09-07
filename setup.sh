@@ -32,7 +32,7 @@ WORKSPACES_POOL="workload-workspaces"
 
 GKE_VERSION=${GKE_VERSION:="1.20.8-gke.900"}
 
-GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.55"}
+GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.68"}
 
 function check_prerequisites() {
     if [ -z "${PROJECT_NAME}" ]; then
