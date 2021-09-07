@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -eo pipefail
-
+set -x
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 if [ ! -f "${DIR}/.env" ]; then
     echo "Missing ${DIR}/.env configuration file."
@@ -32,7 +32,7 @@ WORKSPACES_POOL="workload-workspaces"
 
 GKE_VERSION=${GKE_VERSION:="1.20.8-gke.900"}
 
-GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.55"}
+GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.68"}
 
 function check_prerequisites() {
     if [ -z "${PROJECT_NAME}" ]; then
@@ -369,6 +369,11 @@ function install() {
                 --from-file=.dockerconfigjson="${IMAGE_PULL_SECRET_FILE}" \
                 --type=kubernetes.io/dockerconfigjson  >/dev/null 2>&1 || true
         fi
+
+        yq e -i '.components.imageBuilderMk3.registry.secretName = "gitpod-image-pull-secret"' "${DIR}/charts/assets/gitpod-values.yaml"
+    else
+        # ensure the chart installation does not fail without a secret.
+        yq e -i '.components.imageBuilderMk3.registry = {}' "${DIR}/charts/assets/gitpod-values.yaml"
     fi
 
     install_cert_manager
