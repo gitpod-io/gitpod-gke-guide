@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -eo pipefail
-set -x
+
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 if [ ! -f "${DIR}/.env" ]; then
     echo "Missing ${DIR}/.env configuration file."
