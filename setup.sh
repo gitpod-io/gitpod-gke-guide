@@ -227,6 +227,10 @@ function install_gitpod() {
         gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
     fi
 
+    if [ -n "${IMAGE_PULL_SECRET_FILE}" ] && [ -f "${IMAGE_PULL_SECRET_FILE}" ]; then
+        yq e -i '.components.imageBuilderMk3.registry.secretName = "gitpod-image-pull-secret"' "${DIR}/charts/assets/gitpod-values.yaml"
+    fi
+
     envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
 }
 
