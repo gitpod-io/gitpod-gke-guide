@@ -18,7 +18,7 @@ DOCKER_RUN_CMD = docker run -it \
 install: ## Install Gitpod
 	@echo "Starting install process..."
 	@test $(shell gcloud info --format="value(config.account)") || { echo "GCP dredentials do not exist. Run [gcloud auth login] to configure them"; exit 1; }
-	$(call DOCKER_RUN_CMD, --install)
+	@$(call DOCKER_RUN_CMD, --install)
 
 uninstall: ## Uninstall Gitpod
 	@echo "Starting uninstall process..."
