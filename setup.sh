@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -eo pipefail
-
+set -x
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 if [ ! -f "${DIR}/.env" ]; then
     echo "Missing ${DIR}/.env configuration file."
@@ -227,10 +227,6 @@ function install_gitpod() {
         gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
     fi
 
-    if [ -n "${IMAGE_PULL_SECRET_FILE}" ] && [ -f "${IMAGE_PULL_SECRET_FILE}" ]; then
-        yq e -i '.components.imageBuilderMk3.registry.secretName = "gitpod-image-pull-secret"' "${DIR}/charts/assets/gitpod-values.yaml"
-    fi
-
     envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
 }
 
@@ -373,6 +369,11 @@ function install() {
                 --from-file=.dockerconfigjson="${IMAGE_PULL_SECRET_FILE}" \
                 --type=kubernetes.io/dockerconfigjson  >/dev/null 2>&1 || true
         fi
+
+        yq e -i '.components.imageBuilderMk3.registry.secretName = "gitpod-image-pull-secret"' "${DIR}/charts/assets/gitpod-values.yaml"
+    else
+        # ensure the chart installation does not fail without a secret.
+        yq e -i '.components.imageBuilderMk3.registry = {}' "${DIR}/charts/assets/gitpod-values.yaml"
     fi
 
     install_cert_manager
