@@ -30,8 +30,6 @@ DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
 
-GKE_VERSION=${GKE_VERSION:="1.20.8-gke.900"}
-
 GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.68"}
 
 function check_prerequisites() {
@@ -318,6 +316,15 @@ function install() {
         echo "Cluster with name ${CLUSTER_NAME} already exists. Skip cluster creation.";
         gcloud container clusters get-credentials --region="${REGION}" "${CLUSTER_NAME}"
     else
+        if [ -z "${GKE_VERSION}" ]; then
+            echo "Getting default version from regular channel"
+            GKE_VERSION=$(gcloud container get-server-config \
+                --flatten="channels" \
+                --filter="channels.channel=REGULAR" \
+                --format="value(channels.defaultVersion)" \
+                --region="${REGION}")
+        fi
+
         # shellcheck disable=SC2086
         gcloud container clusters \
             create "${CLUSTER_NAME}" \
