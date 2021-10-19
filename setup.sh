@@ -57,6 +57,8 @@ function check_prerequisites() {
     if [ -n "${PREEMPTIBLE}" ] && [ "${PREEMPTIBLE}" == "true" ]; then
         PREEMPTIBLE="--preemptible"
         export PREEMPTIBLE
+    else
+        unset PREEMPTIBLE
     fi
 
     NODES_LOCATIONS=
