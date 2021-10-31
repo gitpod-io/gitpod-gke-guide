@@ -344,7 +344,7 @@ function install() {
             --max-pods-per-node=110 --default-max-pods-per-node=110 \
             --min-nodes=0 --max-nodes=1 \
             --addons=HorizontalPodAutoscaling,NodeLocalDNS,NetworkPolicy \
-            ${NODES_LOCATIONS} ${PREEMPTIBLE}
+            ${NODES_LOCATIONS}
 
         # delete default node pool (is not possible to create a cluster without nodes)
         gcloud --quiet container node-pools delete default-pool --cluster="${CLUSTER_NAME}" --region="${REGION}"
