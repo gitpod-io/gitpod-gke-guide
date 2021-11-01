@@ -11,7 +11,7 @@ build: ## Build docker image containing the required tools for the installation
 DOCKER_RUN_CMD = docker run -it \
 	--pull always \
 	--volume $$HOME/.config/gcloud:/root/.config/gcloud \
-	--volume $$HOME/.kube/config:/root/.kube/config \
+	--volume $$HOME/.kube:/root/.kube \
 	--volume $$PWD:/gitpod \
 	${IMG} $(1)
 

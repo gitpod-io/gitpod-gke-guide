@@ -1,0 +1,11 @@
+image: 
+  file: .gitpod.Dockerfile
+tasks:
+- init: |
+    cp .env.example .env
+  command: |
+    mkdir -p ~/.kube
+    mkdir -p ~/.config/gcloud
+    open .env
+    gcloud auth login
+    make install
