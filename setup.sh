@@ -121,14 +121,13 @@ function create_service_account() {
     local ROLES=( "$@" )
     if [ "$(gcloud iam service-accounts list --filter="displayName:${SA}" --format="value(displayName)" | grep "${SA}" || echo "empty")" == "${SA}" ]; then
         echo "IAM service account ${SA} already exists."
-        return
+    else
+      gcloud iam service-accounts create "${SA}" --display-name "${SA}"
+      for ROLE in ${ROLES[*]}; do
+          gcloud projects add-iam-policy-binding "${PROJECT_NAME}" \
+              --member serviceAccount:"${EMAIL}" --role="${ROLE}"
+      done
     fi
-
-    gcloud iam service-accounts create "${SA}" --display-name "${SA}"
-    for ROLE in ${ROLES[*]}; do
-        gcloud projects add-iam-policy-binding "${PROJECT_NAME}" \
-            --member serviceAccount:"${EMAIL}" --role="${ROLE}"
-    done
 }
 
 function create_namespace() {
@@ -210,25 +209,23 @@ function install_cert_manager() {
 
 function install_gitpod() {
     echo "Installing Gitpod..."
-    if ! kubectl get secret gcloud-sql-token >/dev/null 2>&1;then
-        kubectl create secret generic gcloud-sql-token --from-file=credentials.json="${DIR}/mysql-credentials.json"
-    fi
 
-    if ! kubectl get secret remote-storage-gcloud >/dev/null 2>&1;then
-        kubectl create secret generic remote-storage-gcloud --from-file=key.json="${DIR}/gs-credentials.json"
-    fi
+    local CONFIG_FILE="${DIR}/gitpod-config.yaml"
 
-    CONTAINER_REGISTRY_BUCKET="container-registry-${CLUSTER_NAME}-${PROJECT_ID}"
-    export CONTAINER_REGISTRY_BUCKET
-    # the bucket must exists before installing the docker-registry.
-    if ! gsutil acl get "gs://${CONTAINER_REGISTRY_BUCKET}" >/dev/null 2>&1;then
-        gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
-    fi
+    gitpod-installer init > "${CONFIG_FILE}"
 
-    envsubst < "${DIR}/charts/assets/gitpod-values.yaml" | helm upgrade --install gitpod gitpod/gitpod -f -
+    yq e -i ".domain = \"${DOMAIN}\"" "${CONFIG_FILE}"
+    yq e -i ".metadata.region = \"${REGION}\"" "${CONFIG_FILE}"
+    yq e -i '.workspace.runtime.containerdRuntimeDir = "/var/lib/containerd/io.containerd.runtime.v2.task/k8s.io"' "${CONFIG_FILE}"
+
+    gitpod-installer \
+        render \
+        --config="${CONFIG_FILE}" > gitpod.yaml
+
+    kubectl apply -f gitpod.yaml
 }
 
-function service_account_exits() {
+function service_account_exists() {
     local SA=$1
     if [ "$(gcloud iam service-accounts list --filter="displayName:${SA}" --format="value(displayName)" | grep "${SA}" || echo "empty")" == "${SA}" ]; then
         return 0
@@ -257,13 +254,13 @@ function wait_for_load_balancer() {
 }
 
 function install() {
+    echo "Gitpod installer version: $(gitpod-installer version | jq -r '.version')"
+
     check_prerequisites
 
     echo "Updating helm repositories..."
-    helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
     helm repo add bitnami https://charts.bitnami.com/bitnami
     helm repo add jetstack https://charts.jetstack.io
-    helm repo add gitpod https://aledbf.github.io/gitpod-chart-cleanup/
     helm repo update
 
     gcloud config set project "${PROJECT_NAME}"
@@ -287,7 +284,7 @@ function install() {
     gcloud services enable sqladmin.googleapis.com
 
     # Create service accounts
-    if service_account_exits "${GKE_SA}"; then
+    if service_account_exists "${GKE_SA}"; then
         echo "IAM service account ${GKE_SA} already exists."
     else
         local GKE_ROLES=( "roles/storage.admin" "roles/logging.logWriter" "roles/monitoring.metricWriter" "roles/container.admin")
@@ -301,12 +298,15 @@ function install() {
             --iam-account "${MYSQL_SA_EMAIL}" "$DIR/mysql-credentials.json"
     fi
 
-    if service_account_exits "${OBJECT_STORAGE_SA}"; then
+    echo $OBJECT_STORAGE_SA
+
+    if service_account_exists "${OBJECT_STORAGE_SA}"; then
         echo "IAM service account ${OBJECT_STORAGE_SA} already exists."
     else
         local OBJECT_STORAGE_ROLES=( "roles/storage.admin" "roles/storage.objectAdmin" )
         create_service_account "${OBJECT_STORAGE_SA}" "${OBJECT_STORAGE_SA_EMAIL}" "${OBJECT_STORAGE_ROLES[@]}"
     fi
+
     if [ ! -f "$DIR/gs-credentials.json" ]; then
         gcloud iam service-accounts keys create \
             --iam-account "${OBJECT_STORAGE_SA_EMAIL}" "$DIR/gs-credentials.json"
@@ -353,13 +353,13 @@ function install() {
     if [ "$(gcloud container node-pools list --cluster="${CLUSTER_NAME}" --region="${REGION}" --filter="name=${SERVICES_POOL}" --format="value(name)" | grep "${SERVICES_POOL}" || echo "empty")" == "${SERVICES_POOL}" ]; then
         echo "Node pool with name ${SERVICES_POOL} already exists in cluster ${CLUSTER_NAME}. Skip node-pool creation step.";
     else
-        create_node_pool "${SERVICES_POOL}" "gitpod.io/workload_services=true"
+        create_node_pool "${SERVICES_POOL}" "gitpod.io/workload_meta=true,gitpod.io/workload_ide=true"
     fi
 
     if [ "$(gcloud container node-pools list --cluster="${CLUSTER_NAME}" --region="${REGION}" --filter="name=${WORKSPACES_POOL}" --format="value(name)" | grep "${WORKSPACES_POOL}" || echo "empty")" == "${WORKSPACES_POOL}" ]; then
         echo "Node pool with name ${WORKSPACES_POOL} already exists in cluster ${CLUSTER_NAME}. Skip node-pool creation step.";
     else
-        create_node_pool "${WORKSPACES_POOL}" "gitpod.io/workload_workspaces=true"
+        create_node_pool "${WORKSPACES_POOL}" "gitpod.io/workload_workspace_services=true,gitpod.io/workload_workspace_regular=true,gitpod.io/workload_workspace_headless=true"
     fi
 
     if ! kubectl get clusterrolebinding cluster-admin-binding >/dev/null 2>&1; then
@@ -369,27 +369,21 @@ function install() {
             --clusterrole=cluster-admin --user="$(gcloud config get-value core/account)"
     fi
 
-    # Create secret with container registry credentials
-    if [ -n "${IMAGE_PULL_SECRET_FILE}" ] && [ -f "${IMAGE_PULL_SECRET_FILE}" ]; then
-        if ! kubectl get secret gitpod-image-pull-secret; then
-            kubectl create secret generic gitpod-image-pull-secret \
-                --from-file=.dockerconfigjson="${IMAGE_PULL_SECRET_FILE}" \
-                --type=kubernetes.io/dockerconfigjson  >/dev/null 2>&1 || true
-        fi
-
-        yq e -i '.components.imageBuilderMk3.registry.secretName = "gitpod-image-pull-secret"' "${DIR}/charts/assets/gitpod-values.yaml"
-    else
-        # ensure the chart installation does not fail without a secret.
-        yq e -i '.components.imageBuilderMk3.registry = {}' "${DIR}/charts/assets/gitpod-values.yaml"
-    fi
-
     install_cert_manager
     setup_managed_dns
-    setup_mysql_database
-    install_jaeger_operator
+#    setup_mysql_database
     install_gitpod
 
     wait_for_load_balancer
+
+    # The load balancer wait clips message - extra line solves that
+    cat << EOF
+
+==========================
+Gitpod is now installed on your cluster
+
+Please update your DNS record with the relevant nameserver.
+EOF
 }
 
 function setup_kubectl() {

@@ -1,3 +1,5 @@
 .env
 .kubeconfig*
 *.json
+gitpod.yaml
+gitpod-config.yaml

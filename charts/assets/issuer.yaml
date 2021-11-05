@@ -1,7 +1,9 @@
+---
 apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
+kind: Issuer
 metadata:
-  name: gcloud-issuer
+  name: gitpod-issuer
+  namespace: default
 spec:
   acme:
     email: $LETSENCRYPT_EMAIL
@@ -15,3 +17,18 @@ spec:
             serviceAccountSecretRef:
               name: clouddns-dns01-solver-svc-acct
               key: key.json
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: https-certificates
+  namespace: default
+spec:
+  secretName: https-certificates
+  issuerRef:
+    name: gitpod-issuer
+    kind: Issuer
+  dnsNames:
+    - $DOMAIN
+    - "*.$DOMAIN"
+    - "*.ws.$DOMAIN"
