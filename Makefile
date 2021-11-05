@@ -9,15 +9,14 @@ build: ## Build docker image containing the required tools for the installation
 	@docker build --squash --quiet . -t ${IMG}
 
 DOCKER_RUN_CMD = docker run -it \
-	--pull always \
 	--volume $$HOME/.config/gcloud:/root/.config/gcloud \
-	--volume $$HOME/.kube/config:/root/.kube/config \
+	--volume $$HOME/.kube:/root/.kube \
 	--volume $$PWD:/gitpod \
 	${IMG} $(1)
 
 install: ## Install Gitpod
 	@echo "Starting install process..."
-	@test $(shell gcloud info --format="value(config.account)") || { echo "GCP dredentials do not exist. Run [gcloud auth login] to configure them"; exit 1; }
+	@test $(shell gcloud info --format="value(config.account)") || { echo "GCP credentials do not exist. Run [gcloud auth login] to configure them"; exit 1; }
 	@$(call DOCKER_RUN_CMD, --install)
 
 uninstall: ## Uninstall Gitpod
