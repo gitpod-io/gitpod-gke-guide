@@ -47,22 +47,21 @@ The whole process takes around twenty minutes. In the end, the following resourc
   NAME                     READY   STATUS    RESTARTS   AGE
   proxy-5998488f4c-t8vkh   0/1     Init 0/1  0          5m
   ```
+  
+  The most likely reason is because the [DNS01 challenge](https://cert-manager.io/docs/configuration/acme/dns01/) has yet to resolve. If using `SETUP_MANAGED_DNS`, you will need to update your DNS records to point to the GCP Cloud DNS nameserver.
 
-  One of the reason could be related to the [DNS01 challenge](https://cert-manager.io/docs/configuration/acme/dns01/) validation for the wildcard certificates can take several minutes (*DNS propagation*).
-  So, once the Certificate is `Ready`, maybe it will be needed to restart the deployments.
-  The DNS01 challenge needs create a TXT record on the domain name. If the domain name is not in the `PROJECT_NAME`, this will need to be done manually. The `SETUP_MANAGED_DNS` should be set to `false`.
+  Once the DNS record has been updated, you will need to delete all Cert Manager pods to retrigger the certificate request
+
+  ```shell
+  ❯ kubectl delete pods -n cert-manager --all
+  ```
+  
+  After a few minutes, you should see the `https-certificate` become ready.   
 
   ```shell
   ❯ kubectl get certificate
   NAME                        READY   SECRET                      AGE
-  proxy-config-certificates   True    proxy-config-certificates   5m
-  ```
-
-  running the commands:
-
-  ```shell
-  kubectl rollout restart deployment/server
-  kubectl rollout restart deployment/ws-proxy
+  https-certificates          True    https-certificates          5m
   ```
 
 ## Verify the installation
@@ -71,21 +70,33 @@ First, check that Gitpod components are running.
 
 ```shell
 kubectl get pods
-NAME                               READY   STATUS    RESTARTS   AGE
-blobserve-6bdb9c7f89-lvhxd         2/2     Running   0          6m17s
-content-service-59bd58bc4d-xgv48   1/1     Running   0          6m17s
-dashboard-6ffdf8984-b6f7j          1/1     Running   0          6m17s
-image-builder-5df5694848-wsdvk     3/3     Running   0          6m16s
-jaeger-8679bf6676-zz57m            1/1     Running   0          4h28m
-messagebus-0                       1/1     Running   0          4h11m
-proxy-56c4cdd799-bbfbx             1/1     Running   0          5m33s
-registry-6b75f99844-bhhqd          1/1     Running   0          4h11m
-registry-facade-f7twj              2/2     Running   0          6m12s
-server-64f9cf6b9b-bllgg            2/2     Running   0          6m16s
-ws-daemon-bh6h6                    2/2     Running   0          2m47s
-ws-manager-5d57746845-t74n5        2/2     Running   0          6m16s
-ws-manager-bridge-79f7fcb5-7w4p5   1/1     Running   0          6m16s
-ws-proxy-7fc9665-rchr9             1/1     Running   0          5m57s
+NAME                                             READY   STATUS      RESTARTS   AGE
+agent-smith-bz97r                                2/2     Running     0          95m
+agent-smith-dll6b                                2/2     Running     0          95m
+agent-smith-kvrs5                                2/2     Running     0          95m
+blobserve-74599b4b98-5t9dq                       2/2     Running     0          95m
+cloudsqlproxy-cloud-sql-proxy-7556c57c4d-zqptx   1/1     Running     0          95m
+cloudsqlproxy-session-ldl9h                      0/1     Completed   0          95m
+content-service-758878c6c-b4sqh                  1/1     Running     0          95m
+dashboard-758f94ccf5-qk8cm                       1/1     Running     0          95m
+image-builder-mk3-55f948b89f-m6qbk               2/2     Running     0          95m
+jaeger-operator-6cc9f79cc8-dfkjh                 1/1     Running     0          95m
+messagebus-0                                     1/1     Running     0          95m
+migrations-5jmkx                                 0/1     Completed   0          95m
+openvsx-proxy-0                                  1/1     Running     0          95m
+proxy-55665d8765-n2b2w                           2/2     Running     0          95m
+registry-facade-4c7tz                            2/2     Running     0          95m
+registry-facade-5dxfx                            2/2     Running     0          95m
+registry-facade-gxmhv                            2/2     Running     0          95m
+server-ccb459f85-8vgfn                           2/2     Running     0          95m
+ws-daemon-6qrjf                                  2/2     Running     0          95m
+ws-daemon-hslz7                                  2/2     Running     0          95m
+ws-daemon-hzw8h                                  2/2     Running     0          95m
+ws-manager-8f6bc54f4-r67kk                       1/1     Running     0          95m
+ws-manager-bridge-56d7978664-6l6ht               2/2     Running     0          95m
+ws-proxy-fbc47486d-kqdvj                         1/1     Running     0          95m
+ws-scheduler-5c5d9f998-6zxmz                     2/2     Running     0          95m
+
 ```
 
 ### Test Gitpod workspaces
@@ -98,7 +109,7 @@ Load balancer IP address: XXX.XXX.XXX.XXX
 ```
 
 Please open the URL `https://<domain>/workspaces`.
-It should display the gitpod login page similar to the next image.
+It should display the Gitpod login page similar to the next image.
 
 *DNS propagation* can take several minutes.
 
