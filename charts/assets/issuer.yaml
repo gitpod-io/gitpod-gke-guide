@@ -3,7 +3,6 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: gitpod-issuer
-  namespace: default
 spec:
   acme:
     email: $LETSENCRYPT_EMAIL
@@ -15,16 +14,15 @@ spec:
           cloudDNS:
             project: $PROJECT_NAME
             serviceAccountSecretRef:
-              name: clouddns-dns01-solver-svc-acct
+              name: $CLOUD_DNS_SECRET
               key: key.json
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: https-certificates
-  namespace: default
+  name: $CERT_NAME
 spec:
-  secretName: https-certificates
+  secretName: $CERT_NAME
   issuerRef:
     name: gitpod-issuer
     kind: Issuer

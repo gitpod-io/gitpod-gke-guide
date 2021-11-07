@@ -29,8 +29,15 @@ DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 # Name of the node-pools for Gitpod services and workspaces
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
+# Secrets
+SECRET_DATABASE="gcp-sql-token"
+SECRET_REGISTRY="gcp-registry-token"
+SECRET_STORAGE="gcp-storage-token"
 
-GITPOD_VERSION=${GITPOD_VERSION:="aledbf-mk3.68"}
+REGISTRY_URL="gcr.io/${PROJECT_NAME}/gitpod"
+MYSQL_GITPOD_USERNAME="gitpod"
+MYSQL_GITPOD_ENCRYPTION_KEY='[{"name":"general","version":1,"primary":true,"material":"4uGh1q8y2DYryJwrVMHs0kWXJlqvHWWt/KJuNi04edI="}]'
+CERT_NAME="https-certificates"
 
 function check_prerequisites() {
     if [ -z "${PROJECT_NAME}" ]; then
@@ -86,12 +93,39 @@ function create_node_pool() {
         "${PREEMPTIBLE}"
 }
 
+function create_secrets() {
+  # Assume that these values can change so create each run time
+
+  echo "Create database secret..."
+  kubectl create secret generic "${SECRET_DATABASE}" \
+    --from-literal=credentials.json="$(cat ./mysql-credentials.json)" \
+    --from-literal=encryptionKeys="${MYSQL_GITPOD_ENCRYPTION_KEY}" \
+    --from-literal=password="${MYSQL_GITPOD_PASSWORD}" \
+    --from-literal=username="${MYSQL_GITPOD_USERNAME}" \
+    --dry-run=client -o yaml | \
+    kubectl replace --force -f -
+
+  echo "Create registry secret..."
+  kubectl create secret docker-registry "${SECRET_REGISTRY}" \
+      --docker-server="${REGISTRY_URL}" \
+      --docker-username=_json_key \
+      --docker-password="$(cat gs-credentials.json)" \
+      --dry-run=client -o yaml | \
+      kubectl replace --force -f -
+
+  echo "Create storage secret..."
+  kubectl create secret generic "${SECRET_STORAGE}" \
+      --from-file=service-account.json=./gs-credentials.json \
+      --dry-run=client -o yaml | \
+      kubectl replace --force -f -
+}
+
 function setup_mysql_database() {
     if [ "$(gcloud sql instances list --filter="name:${MYSQL_INSTANCE_NAME}" --format="value(name)" | grep "${MYSQL_INSTANCE_NAME}" || echo "empty")" == "${MYSQL_INSTANCE_NAME}" ]; then
         echo "Cloud SQL (MySQL) Instance already exists."
     else
         # https://cloud.google.com/sql/docs/mysql/create-instance
-        echo "Creating Mysql instance..."
+        echo "Creating MySQL instance..."
         gcloud sql instances create "${MYSQL_INSTANCE_NAME}" \
             --database-version=MYSQL_5_7 \
             --storage-size=20 \
@@ -104,14 +138,14 @@ function setup_mysql_database() {
         gcloud sql instances patch "${MYSQL_INSTANCE_NAME}" --database-flags \
             explicit_defaults_for_timestamp=off --quiet
 
-        echo "Creating gitpod Mysql database..."
+        echo "Creating Gitpod MySQL database..."
         gcloud sql databases create gitpod --instance="${MYSQL_INSTANCE_NAME}"
     fi
 
-    echo "Creating gitpod Mysql user and setting a password..."
+    echo "Creating Gitpod MySQL user and setting a password..."
     MYSQL_GITPOD_PASSWORD=$(openssl rand -base64 20)
     export MYSQL_GITPOD_PASSWORD
-    gcloud sql users create gitpod \
+    gcloud sql users create "${MYSQL_GITPOD_USERNAME}" \
         --instance="${MYSQL_INSTANCE_NAME}" --password="${MYSQL_GITPOD_PASSWORD}"
 }
 
@@ -128,27 +162,6 @@ function create_service_account() {
               --member serviceAccount:"${EMAIL}" --role="${ROLE}"
       done
     fi
-}
-
-function create_namespace() {
-    local NAMESPACE=$1
-    if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1;then
-        kubectl create namespace "${NAMESPACE}"
-    fi
-}
-
-function install_jaeger_operator(){
-    echo "Installing Jaeger operator..."
-    create_namespace jaeger-operator
-    kubectl apply -f https://raw.githubusercontent.com/jaegertracing/helm-charts/main/charts/jaeger-operator/crds/crd.yaml
-    helm upgrade --install --namespace jaeger-operator \
-        jaegeroperator jaegertracing/jaeger-operator \
-        --set crd.install=false \
-        -f "${DIR}/charts/assets/jaeger-values.yaml"
-
-    kubectl wait --for=condition=available --timeout=300s \
-        deployment/jaegeroperator-jaeger-operator -n jaeger-operator
-    kubectl apply -f "${DIR}/charts/assets/jaeger-gitpod.yaml"
 }
 
 function setup_managed_dns() {
@@ -173,20 +186,28 @@ function setup_managed_dns() {
         fi
 
         echo "Installing external-dns..."
-        create_namespace external-dns
-        helm upgrade --install external-dns \
+        helm upgrade \
+            --atomic \
+            --cleanup-on-fail \
+            --create-namespace \
+            --install \
             --namespace external-dns \
-            bitnami/external-dns \
+            --reset-values \
             --set provider=google \
             --set google.project="${PROJECT_NAME}" \
             --set logFormat=json \
-            --set google.serviceAccountSecretKey=dns-credentials.json
+            --set google.serviceAccountSecretKey=dns-credentials.json \
+            --wait \
+            external-dns \
+            bitnami/external-dns
 
-        if ! kubectl get secret --namespace cert-manager clouddns-dns01-solver-svc-acct; then
-            echo "Creating secret for Cloud DNS Issuer..."
-            kubectl create secret generic clouddns-dns01-solver-svc-acct \
-                --namespace cert-manager --from-file=key.json="${DIR}/dns-credentials.json"
-        fi
+        echo "Creating secret for Cloud DNS Issuer..."
+        export CLOUD_DNS_SECRET=clouddns-dns01-solver
+
+        kubectl create secret generic "${CLOUD_DNS_SECRET}" \
+            --from-file=key.json="${DIR}/dns-credentials.json" \
+            --dry-run=client -o yaml | \
+            kubectl replace --force -f -
 
         echo "Installing cert-manager certificate issuer..."
         envsubst < "${DIR}/charts/assets/issuer.yaml" | kubectl apply -f -
@@ -195,16 +216,18 @@ function setup_managed_dns() {
 
 function install_cert_manager() {
     echo "Installing cert-manager..."
-    helm upgrade cert-manager jetstack/cert-manager \
-        --namespace='cert-manager' \
-        --install \
+    helm upgrade \
+        --atomic \
+        --cleanup-on-fail \
         --create-namespace \
+        --install \
+        --namespace cert-manager \
+        --reset-values \
         --set installCRDs=true \
         --set 'extraArgs={--dns01-recursive-nameservers-only=true,--dns01-recursive-nameservers=8.8.8.8:53\,1.1.1.1:53}' \
-        --atomic
-
-    # ensure cert-manager and CRDs are installed and running
-    kubectl wait --for=condition=available --timeout=300s deployment/cert-manager -n cert-manager
+        --wait \
+        cert-manager \
+        jetstack/cert-manager
 }
 
 function install_gitpod() {
@@ -214,8 +237,22 @@ function install_gitpod() {
 
     gitpod-installer init > "${CONFIG_FILE}"
 
+    echo "Updating config..."
+    yq e -i ".certificate.name = \"${CERT_NAME}\"" "${CONFIG_FILE}"
+    yq e -i ".containerRegistry.inCluster = false" "${CONFIG_FILE}"
+    yq e -i ".containerRegistry.external.url = \"${REGISTRY_URL}\"" "${CONFIG_FILE}"
+    yq e -i ".containerRegistry.external.certificate.kind = \"secret\"" "${CONFIG_FILE}"
+    yq e -i ".containerRegistry.external.certificate.name = \"${SECRET_REGISTRY}\"" "${CONFIG_FILE}"
+    yq e -i ".database.inCluster = false" "${CONFIG_FILE}"
+    yq e -i ".database.cloudSQL.instance = \"${PROJECT_NAME}:${REGION}:${MYSQL_INSTANCE_NAME}\"" "${CONFIG_FILE}"
+    yq e -i ".database.cloudSQL.serviceAccount.kind = \"secret\"" "${CONFIG_FILE}"
+    yq e -i ".database.cloudSQL.serviceAccount.name = \"${SECRET_DATABASE}\"" "${CONFIG_FILE}"
     yq e -i ".domain = \"${DOMAIN}\"" "${CONFIG_FILE}"
     yq e -i ".metadata.region = \"${REGION}\"" "${CONFIG_FILE}"
+    yq e -i ".objectStorage.inCluster = false" "${CONFIG_FILE}"
+    yq e -i ".objectStorage.cloudStorage.project = \"${PROJECT_NAME}\"" "${CONFIG_FILE}"
+    yq e -i ".objectStorage.cloudStorage.serviceAccount.kind = \"secret\"" "${CONFIG_FILE}"
+    yq e -i ".objectStorage.cloudStorage.serviceAccount.name = \"${SECRET_STORAGE}\"" "${CONFIG_FILE}"
     yq e -i '.workspace.runtime.containerdRuntimeDir = "/var/lib/containerd/io.containerd.runtime.v2.task/k8s.io"' "${CONFIG_FILE}"
 
     gitpod-installer \
@@ -231,25 +268,6 @@ function service_account_exists() {
         return 0
     else
         return 1
-    fi
-}
-
-function wait_for_load_balancer() {
-    sleep 10
-
-    COUNT=0
-    LB_IP_ADDRESS=""
-    while [ "${LB_IP_ADDRESS}" == "" ] && [ "${COUNT}" -lt 5 ];do
-        printf "."
-        LB_IP_ADDRESS=$(kubectl get service proxy -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        ((COUNT+=1))
-        sleep 5
-    done
-
-    if [ -n "${LB_IP_ADDRESS}" ];then
-        printf '\nLoad balancer IP address: %s\n' "${LB_IP_ADDRESS}"
-    else
-        printf '\n The load balancer is still being provisioned. Wait a couple of minutes.'
     fi
 }
 
@@ -369,20 +387,24 @@ function install() {
             --clusterrole=cluster-admin --user="$(gcloud config get-value core/account)"
     fi
 
+    CONTAINER_REGISTRY_BUCKET="container-registry-${CLUSTER_NAME}-${PROJECT_ID}"
+    export CONTAINER_REGISTRY_BUCKET
+    # the bucket must exists before installing the docker-registry.
+    if ! gsutil acl get "gs://${CONTAINER_REGISTRY_BUCKET}" >/dev/null 2>&1;then
+        gsutil mb "gs://${CONTAINER_REGISTRY_BUCKET}"
+    fi
+
     install_cert_manager
     setup_managed_dns
-#    setup_mysql_database
+    setup_mysql_database
+    create_secrets
     install_gitpod
 
-    wait_for_load_balancer
-
-    # The load balancer wait clips message - extra line solves that
     cat << EOF
-
 ==========================
 Gitpod is now installed on your cluster
 
-Please update your DNS record with the relevant nameserver.
+Please update your DNS records with the relevant nameserver.
 EOF
 }
 
