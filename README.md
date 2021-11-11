@@ -117,17 +117,15 @@ It should display the Gitpod login page similar to the next image.
 
 ----
 
-## Update Gitpod auth providers
+## Delete Gitpod from your cluster
 
-Please check the [OAuth providers integration documentation](https://www.gitpod.io/docs/self-hosted/0.5.0/install/oauth) expected format.
+Remove Gitpod from your cluster running:
 
-We provide an [example here](./auth-providers-patch.yaml). Fill it with your OAuth providers data.
-
-```console
-make auth
+```shell
+kubectl get configmaps gitpod-app \
+  -o jsonpath='{.data.app\.yaml}' | \
+  kubectl delete -f -
 ```
-
-> We are aware of the limitation of this approach, and we are working to improve the helm chart to avoid this step.
 
 ## Destroy the cluster and GCP resources
 
