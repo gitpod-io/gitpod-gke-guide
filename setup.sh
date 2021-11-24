@@ -107,7 +107,7 @@ function create_secrets() {
 
   echo "Create registry secret..."
   kubectl create secret docker-registry "${SECRET_REGISTRY}" \
-      --docker-server="${REGISTRY_URL}" \
+      --docker-server="gcr.io" \
       --docker-username=_json_key \
       --docker-password="$(cat gs-credentials.json)" \
       --dry-run=client -o yaml | \
