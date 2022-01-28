@@ -1,7 +1,3 @@
-ARG GITPOD_VERSION="main.1887"
-
-FROM eu.gcr.io/gitpod-core-dev/build/installer:$GITPOD_VERSION as installer
-
 FROM alpine:3.14
 
 RUN apk add --no-cache \
@@ -13,6 +9,7 @@ RUN apk add --no-cache \
     gettext \
     openssl
 
+ARG GITPOD_VERSION="2022.01"
 ARG CLOUD_SDK_VERSION=351.0.0
 ARG HELM_VERSION=v3.6.3
 
@@ -36,7 +33,8 @@ RUN gcloud components install alpha
 RUN curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.12.2/yq_linux_amd64 -o /usr/local/bin/yq \
   && chmod +x /usr/local/bin/yq
 
-COPY --from=installer /app/installer /usr/local/bin/gitpod-installer
+RUN curl -fsSL https://github.com/gitpod-io/gitpod/releases/download/${GITPOD_VERSION}/gitpod-installer-linux-amd64 -o /usr/local/bin/gitpod-installer \
+  && chmod +x /usr/local/bin/gitpod-installer
 
 WORKDIR /gitpod
 
