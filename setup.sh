@@ -61,10 +61,11 @@ function check_prerequisites() {
         export REGION
     fi
 
+    PREEMPTIBLE_NODES=
     if [ -n "${PREEMPTIBLE}" ] && [ "${PREEMPTIBLE}" == "true" ]; then
-        PREEMPTIBLE="--preemptible"
-        export PREEMPTIBLE
+        PREEMPTIBLE_NODES="--preemptible"
     fi
+    export PREEMPTIBLE_NODES
 
     NODES_LOCATIONS=
     if [ -n "${ZONES}" ]; then
@@ -90,7 +91,7 @@ function create_node_pool() {
         --node-labels="${NODES_LABEL}" \
         --max-pods-per-node=110 --min-nodes=1 --max-nodes=50 \
         --region="${REGION}" \
-        "${PREEMPTIBLE}"
+        ${PREEMPTIBLE_NODES}
 }
 
 function create_secrets() {
@@ -362,7 +363,7 @@ function install() {
             --max-pods-per-node=110 --default-max-pods-per-node=110 \
             --min-nodes=0 --max-nodes=1 \
             --addons=HorizontalPodAutoscaling,NodeLocalDNS,NetworkPolicy \
-            ${NODES_LOCATIONS} ${PREEMPTIBLE}
+            ${NODES_LOCATIONS} ${PREEMPTIBLE_NODES}
 
         # delete default node pool (is not possible to create a cluster without nodes)
         gcloud --quiet container node-pools delete default-pool --cluster="${CLUSTER_NAME}" --region="${REGION}"
