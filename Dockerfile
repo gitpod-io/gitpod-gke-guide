@@ -9,7 +9,7 @@ RUN apk add --no-cache \
     gettext \
     openssl
 
-ARG GITPOD_VERSION="2022.01"
+ARG GITPOD_VERSION="2022.01.1"
 ARG CLOUD_SDK_VERSION=351.0.0
 ARG HELM_VERSION=v3.6.3
 
