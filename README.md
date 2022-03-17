@@ -1,5 +1,9 @@
 # Running Gitpod in [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine)
 
+> **IMPORTANT** This guide exists as a simple and reliable way of creating a Gitpod instance in GKE. It
+> is not designed to cater for every situation. If you find that it does not meet your exact needs,
+> please fork this guide and amend it to your own needs.
+
 ## Provision a GKE cluster
 
 Before starting the installation process, you need:
