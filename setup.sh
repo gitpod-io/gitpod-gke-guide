@@ -260,6 +260,11 @@ function install_gitpod() {
         render \
         --config="${CONFIG_FILE}" > gitpod.yaml
 
+    # See https://github.com/gitpod-io/gitpod/tree/main/install/installer#error-validating-statefulsetstatus
+    yq eval-all --inplace \
+        'del(select(.kind == "StatefulSet" and .metadata.name == "openvsx-proxy").status)' \
+        gitpod.yaml
+
     kubectl apply -f gitpod.yaml
 }
 
