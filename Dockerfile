@@ -9,7 +9,6 @@ RUN apk add --no-cache \
     gettext \
     openssl
 
-ARG GITPOD_VERSION="2022.03.1"
 ARG CLOUD_SDK_VERSION=351.0.0
 ARG HELM_VERSION=v3.6.3
 
@@ -30,11 +29,8 @@ ENV PATH /google-cloud-sdk/bin:$PATH
 RUN gcloud components install beta
 RUN gcloud components install alpha
 
-RUN curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.12.2/yq_linux_amd64 -o /usr/local/bin/yq \
+RUN curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.24.2/yq_linux_amd64 -o /usr/local/bin/yq \
   && chmod +x /usr/local/bin/yq
-
-RUN curl -fsSL https://github.com/gitpod-io/gitpod/releases/download/${GITPOD_VERSION}/gitpod-installer-linux-amd64 -o /usr/local/bin/gitpod-installer \
-  && chmod +x /usr/local/bin/gitpod-installer
 
 WORKDIR /gitpod
 

@@ -3,3 +3,4 @@
 *.json
 gitpod.yaml
 gitpod-config.yaml
+.idea

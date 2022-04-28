@@ -6,7 +6,7 @@ SHELL=/bin/bash -o pipefail -o errexit
 IMG=ghcr.io/gitpod-io/gitpod-gke-guide:latest
 
 build: ## Build docker image containing the required tools for the installation
-	@docker build --quiet . -t ${IMG}
+	@docker build . -t ${IMG}
 
 DOCKER_RUN_CMD = docker run -it \
 	--volume $$HOME/.config/gcloud:/root/.config/gcloud \

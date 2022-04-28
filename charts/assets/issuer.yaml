@@ -1,6 +1,5 @@
----
 apiVersion: cert-manager.io/v1
-kind: Issuer
+kind: ClusterIssuer
 metadata:
   name: gitpod-issuer
 spec:
@@ -13,20 +12,3 @@ spec:
       - dns01:
           cloudDNS:
             project: $PROJECT_NAME
-            serviceAccountSecretRef:
-              name: $CLOUD_DNS_SECRET
-              key: key.json
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: $CERT_NAME
-spec:
-  secretName: $CERT_NAME
-  issuerRef:
-    name: gitpod-issuer
-    kind: Issuer
-  dnsNames:
-    - $DOMAIN
-    - "*.$DOMAIN"
-    - "*.ws.$DOMAIN"

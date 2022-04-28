@@ -29,15 +29,9 @@ DNS_SA_EMAIL="${DNS_SA}"@"${PROJECT_NAME}".iam.gserviceaccount.com
 # Name of the node-pools for Gitpod services and workspaces
 SERVICES_POOL="workload-services"
 WORKSPACES_POOL="workload-workspaces"
-# Secrets
-SECRET_DATABASE="gcp-sql-token"
-SECRET_REGISTRY="gcp-registry-token"
-SECRET_STORAGE="gcp-storage-token"
 
 REGISTRY_URL="gcr.io/${PROJECT_NAME}/gitpod"
 MYSQL_GITPOD_USERNAME="gitpod"
-MYSQL_GITPOD_ENCRYPTION_KEY='[{"name":"general","version":1,"primary":true,"material":"4uGh1q8y2DYryJwrVMHs0kWXJlqvHWWt/KJuNi04edI="}]'
-CERT_NAME="https-certificates"
 
 function check_prerequisites() {
     if [ -z "${PROJECT_NAME}" ]; then
@@ -92,33 +86,6 @@ function create_node_pool() {
         --max-pods-per-node=110 --min-nodes=1 --max-nodes=50 \
         --region="${REGION}" \
         ${PREEMPTIBLE_NODES}
-}
-
-function create_secrets() {
-  # Assume that these values can change so create each run time
-
-  echo "Create database secret..."
-  kubectl create secret generic "${SECRET_DATABASE}" \
-    --from-literal=credentials.json="$(cat ./mysql-credentials.json)" \
-    --from-literal=encryptionKeys="${MYSQL_GITPOD_ENCRYPTION_KEY}" \
-    --from-literal=password="${MYSQL_GITPOD_PASSWORD}" \
-    --from-literal=username="${MYSQL_GITPOD_USERNAME}" \
-    --dry-run=client -o yaml | \
-    kubectl replace --force -f -
-
-  echo "Create registry secret..."
-  kubectl create secret docker-registry "${SECRET_REGISTRY}" \
-      --docker-server="gcr.io" \
-      --docker-username=_json_key \
-      --docker-password="$(cat gs-credentials.json)" \
-      --dry-run=client -o yaml | \
-      kubectl replace --force -f -
-
-  echo "Create storage secret..."
-  kubectl create secret generic "${SECRET_STORAGE}" \
-      --from-file=service-account.json=./gs-credentials.json \
-      --dry-run=client -o yaml | \
-      kubectl replace --force -f -
 }
 
 function setup_mysql_database() {
@@ -206,9 +173,13 @@ function setup_managed_dns() {
         export CLOUD_DNS_SECRET=clouddns-dns01-solver
 
         kubectl create secret generic "${CLOUD_DNS_SECRET}" \
+            --namespace=cert-manager \
             --from-file=key.json="${DIR}/dns-credentials.json" \
             --dry-run=client -o yaml | \
             kubectl replace --force -f -
+
+        kubectl annotate serviceaccount --namespace=cert-manager cert-manager --overwrite \
+          "iam.gke.io/gcp-service-account=${DNS_SA_EMAIL}"
 
         echo "Installing cert-manager certificate issuer..."
         envsubst < "${DIR}/charts/assets/issuer.yaml" | kubectl apply -f -
@@ -231,41 +202,64 @@ function install_cert_manager() {
         jetstack/cert-manager
 }
 
-function install_gitpod() {
-    echo "Installing Gitpod..."
+function output_config() {
+    cat << EOF
 
-    local CONFIG_FILE="${DIR}/gitpod-config.yaml"
 
-    gitpod-installer init > "${CONFIG_FILE}"
+==========================
+🎉🥳🔥🧡🚀
 
-    echo "Updating config..."
-    yq e -i ".certificate.name = \"${CERT_NAME}\"" "${CONFIG_FILE}"
-    yq e -i ".containerRegistry.inCluster = false" "${CONFIG_FILE}"
-    yq e -i ".containerRegistry.external.url = \"${REGISTRY_URL}\"" "${CONFIG_FILE}"
-    yq e -i ".containerRegistry.external.certificate.kind = \"secret\"" "${CONFIG_FILE}"
-    yq e -i ".containerRegistry.external.certificate.name = \"${SECRET_REGISTRY}\"" "${CONFIG_FILE}"
-    yq e -i ".database.inCluster = false" "${CONFIG_FILE}"
-    yq e -i ".database.cloudSQL.instance = \"${PROJECT_NAME}:${REGION}:${MYSQL_INSTANCE_NAME}\"" "${CONFIG_FILE}"
-    yq e -i ".database.cloudSQL.serviceAccount.kind = \"secret\"" "${CONFIG_FILE}"
-    yq e -i ".database.cloudSQL.serviceAccount.name = \"${SECRET_DATABASE}\"" "${CONFIG_FILE}"
-    yq e -i ".domain = \"${DOMAIN}\"" "${CONFIG_FILE}"
-    yq e -i ".metadata.region = \"${REGION}\"" "${CONFIG_FILE}"
-    yq e -i ".objectStorage.inCluster = false" "${CONFIG_FILE}"
-    yq e -i ".objectStorage.cloudStorage.project = \"${PROJECT_NAME}\"" "${CONFIG_FILE}"
-    yq e -i ".objectStorage.cloudStorage.serviceAccount.kind = \"secret\"" "${CONFIG_FILE}"
-    yq e -i ".objectStorage.cloudStorage.serviceAccount.name = \"${SECRET_STORAGE}\"" "${CONFIG_FILE}"
-    yq e -i '.workspace.runtime.containerdRuntimeDir = "/var/lib/containerd/io.containerd.runtime.v2.task/k8s.io"' "${CONFIG_FILE}"
+Your cloud infrastructure is ready to install Gitpod. Please visit
+https://www.gitpod.io/docs/self-hosted/latest/getting-started#step-4-install-gitpod
+for your next steps.
 
-    gitpod-installer \
-        render \
-        --config="${CONFIG_FILE}" > gitpod.yaml
+Passwords may change on subsequents runs of this guide.
 
-    # See https://github.com/gitpod-io/gitpod/tree/main/install/installer#error-validating-statefulsetstatus
-    yq eval-all --inplace \
-        'del(select(.kind == "StatefulSet" and .metadata.name == "openvsx-proxy").status)' \
-        gitpod.yaml
+=================
+Config Parameters
+=================
 
-    kubectl apply -f gitpod.yaml
+Domain Name: ${DOMAIN}
+
+Registry
+========
+URL: ${REGISTRY_URL}
+Registry Server: gcr.io
+Username: _json_key
+Password: $(cat gs-credentials.json | tr -d '\n')
+
+Database
+========
+Cloud SQL Proxy: enabled
+Connection Name: ${PROJECT_NAME}:${REGION}:${MYSQL_INSTANCE_NAME}
+Username: ${MYSQL_GITPOD_USERNAME}
+Password: ${MYSQL_GITPOD_PASSWORD}
+Service Account Key Path: ./mysql-credentials.json
+
+Storage
+=======
+Region: ${REGION}
+Project ID: ${PROJECT_NAME}
+Service Account Key Path: ./gs-credentials.json
+
+TLS Certificates
+================
+Issuer name: gitpod-issuer
+Issuer type: Cluster issuer
+
+EOF
+
+    if [ -n "${SETUP_MANAGED_DNS}" ] && [ "${SETUP_MANAGED_DNS}" == "true" ]; then
+  cat << EOF
+===========
+DNS Records
+===========
+
+Domain Name: ${DOMAIN}
+Nameserver(s):
+$(gcloud dns managed-zones describe ${CLUSTER_NAME} --format json | jq '.nameServers' | yq -P)
+EOF
+fi
 }
 
 function service_account_exists() {
@@ -278,8 +272,6 @@ function service_account_exists() {
 }
 
 function install() {
-    echo "Gitpod installer version: $(gitpod-installer version | jq -r '.version')"
-
     check_prerequisites
 
     echo "Updating helm repositories..."
@@ -403,15 +395,10 @@ function install() {
     install_cert_manager
     setup_managed_dns
     setup_mysql_database
-    create_secrets
-    install_gitpod
+    output_config
 
-    cat << EOF
-==========================
-Gitpod is now installed on your cluster
-
-Please update your DNS records with the relevant nameserver.
-EOF
+    # Make the credentials readable
+    chmod 644 *credentials.json
 }
 
 function setup_kubectl() {
