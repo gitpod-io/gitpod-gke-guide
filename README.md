@@ -31,7 +31,7 @@ The whole process takes around twenty minutes. In the end, the following resourc
 - [calico](https://docs.projectcalico.org) as CNI and NetworkPolicy implementation.
 - [cert-manager](https://cert-manager.io/) for self-signed SSL certificates.
 
-Upon completion, it will print the config for the resources created (including passwords) and create the necessary credential files that will allow you to connect the components created to your gitpod instance during the [next installtion step](https://www.gitpod.io/docs/self-hosted/latest/getting-started#step-4-install-gitpod).  **IMPORTANT** - running the `make install` command after the initial install will change
+Upon completion, it will print the config for the resources created (including passwords) and create the necessary credential files that will allow you to connect the components created to your Gitpod instance during the [next installation step](https://www.gitpod.io/docs/self-hosted/latest/getting-started#step-4-install-gitpod).  **IMPORTANT** - running the `make install` command after the initial install will change
 your database password which will require you to update your KOTS configuration.
 
 ## DNS records
